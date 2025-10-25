@@ -32,30 +32,33 @@ class QuakeDungeonGenerator:
         self.texture_variety = texture_variety
 
         # Texture pools for different surface types
+        # NOTE: Texture names are CASE-SENSITIVE and must exist in your WAD files!
+        # These are common texture names from standard Quake WAD files
+        # If textures appear as "base" or missing, customize using set_texture_pool()
         self.texture_pools = {
             'floor': [
-                'ground1_6',   # Stone floor
-                'ground1_5',   # Dark stone
-                'floor01_5',   # Metal floor
-                'rock4_2',     # Rocky ground
-                'ground1_7',   # Brick floor
-                'city1_4',     # Concrete
+                'METAL4_8',    # Metal grating
+                'ROCK5_2',     # Rock floor
+                'METAL5_2',    # Metal floor
+                'ROCK3_7',     # Stone floor
+                'METAL4_4',    # Metal panel floor
+                'ROCK1_2',     # Dark rock
             ],
             'ceiling': [
-                'ceiling1_3',  # Tech ceiling
-                'ceiling5',    # Panel ceiling
-                'ceiling4',    # Dark ceiling
-                'sky1',        # Sky (for outdoor areas)
-                'ceiling1_1',  # Stone ceiling
+                'METAL5_8',    # Metal ceiling
+                'ROCK5_2',     # Stone ceiling
+                'METAL4_8',    # Tech ceiling
+                'ROCK3_7',     # Rock ceiling
+                'METAL4_4',    # Panel ceiling
             ],
             'wall': [
-                'city4_7',     # Metal panel
-                'city8_2',     # Industrial wall
-                'rock3_8',     # Rock wall
-                'wizmet1_2',   # Medieval wall
-                'city4_2',     # Tech wall
-                'wizwood1_4',  # Wood paneling
-                'bricka2_4',   # Brick wall
+                'METAL4_8',    # Metal wall
+                'ROCK5_2',     # Rock wall
+                'METAL5_2',    # Metal panels
+                'ROCK3_7',     # Stone wall
+                'METAL4_4',    # Tech wall
+                'ROCK1_2',     # Dark rock wall
+                'METAL5_8',    # Industrial wall
             ]
         }
 
@@ -167,7 +170,9 @@ class QuakeDungeonGenerator:
             f.write('// entity 0\n')
             f.write('{\n')
             f.write('"classname" "worldspawn"\n')
-            f.write('"wad" "gfx/base.wad"\n')
+            # Specify WAD file - adjust path as needed for your Quake installation
+            # Common options: leave blank "", use "gfx.wad", or specify full path
+            f.write('"wad" ""\n')  # Empty = compiler will search standard WAD locations
             
             # Calculate map bounds
             map_size = self.grid_size * self.cell_size
