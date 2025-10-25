@@ -1055,10 +1055,4 @@ if __name__ == '__main__':
         total_entities = sum(len(pool) for pool in generator.entity_pools.values())
         print(f"  - Total entity types available: {total_entities}")
         print(f"  - Categories: {', '.join(generator.entity_pools.keys())}")
-    print("\nTo compile this map:")
-    print("1. Run: qbsp random_dungeon.map")
-    print("   (or with explicit WAD path: qbsp -wadpath /path/to/quake/id1 random_dungeon.map)")
-    print("2. Run: light random_dungeon.bsp")
-    print("3. Run: vis random_dungeon.bsp")
-    print("4. Copy the final .bsp to your Quake/id1/maps/ folder")
-    print("5. Launch Quake and run: map random_dungeon")
+
