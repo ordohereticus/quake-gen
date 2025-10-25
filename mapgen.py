@@ -39,25 +39,21 @@ class QuakeDungeonGenerator:
 
         # Texture pools for different surface types
         # NOTE: Texture names are CASE-SENSITIVE and must exist in your WAD files!
-        # IMPORTANT: You MUST customize these for your specific Quake installation!
-        # See TEXTURES.md for how to find valid texture names
-        #
-        # Common textures from id Software's original maps (Episode 1):
-        # IMPORTANT: Replace these with textures that exist in YOUR WAD files!
+        # These textures should work with standard Quake WAD files (quake101.wad)
+        # Customize using set_texture_pool() if you have different textures available
         self.texture_pools = {
             'floor': [
-                'FLOOR01_5',   # Common floor texture
-                'GROUND1_6',   # Stone ground
-                'MET5_1',      # Metal floor variant
+                'FLOOR1_1',    # Basic floor
+                '*WATER',      # Animated water
             ],
             'ceiling': [
-                'CEIL1_1',     # Tech ceiling
-                'FLOOR01_5',   # Can reuse floor textures
+                'FLOOR1_1',    # Basic ceiling (reuse floor)
+                'SKY1',        # Sky texture
             ],
             'wall': [
-                'WALL1_5',     # Basic wall
-                'CITY1_4',     # City texture
-                'ROCK5_2',     # Rock wall
+                'WALL1_1',     # Basic wall
+                'DOOR1_1',     # Door texture
+                'LIGHT1_1',    # Light texture
             ]
         }
 
@@ -335,7 +331,7 @@ if __name__ == '__main__':
         room_max=4,
         num_rooms=10,
         texture_variety=True,  # Enable random texture selection for variety
-        wad_path="gfx.wad"  # Specify your WAD file - adjust as needed!
+        wad_path="quake101.wad;vondur_extra.wad;"  # WAD files for texture loading
     )
 
     # IMPORTANT: Customize these textures for YOUR Quake installation!
