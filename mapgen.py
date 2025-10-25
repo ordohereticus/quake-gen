@@ -14,7 +14,7 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True, wad_path=""):
+    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True, wad_path="wads/id.wad"):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
@@ -43,17 +43,17 @@ class QuakeDungeonGenerator:
         # Customize using set_texture_pool() if you have different textures available
         self.texture_pools = {
             'floor': [
-                'FLOOR1_1',    # Basic floor
-                '*WATER',      # Animated water
+                'ground1_1',    # Basic floor
+                '*04mwat2',      # Animated water
             ],
             'ceiling': [
-                'FLOOR1_1',    # Basic ceiling (reuse floor)
-                'SKY1',        # Sky texture
+                'metal2_2',    # Basic ceiling (reuse floor)
+                'sky1',        # Sky texture
             ],
             'wall': [
-                'WALL1_1',     # Basic wall
-                'DOOR1_1',     # Door texture
-                'LIGHT1_1',    # Light texture
+                'metal1_1',     # Basic wall
+                'adoor09_2',     # Door texture
+                'light3_3',    # Light texture
             ]
         }
 
@@ -331,7 +331,7 @@ if __name__ == '__main__':
         room_max=4,
         num_rooms=10,
         texture_variety=True,  # Enable random texture selection for variety
-        wad_path="quake101.wad;vondur_extra.wad;"  # WAD files for texture loading
+        wad_path="wads/idbase_mega.wad;"  # WAD files for texture loading
     )
 
     # IMPORTANT: Customize these textures for YOUR Quake installation!
