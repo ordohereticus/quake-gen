@@ -957,7 +957,6 @@ class QuakeDungeonGenerator:
                 f.write('{\n')
                 f.write('"classname" "func_door"\n')
                 f.write(f'"angle" "{door["angle"]}"\n')
-                f.write(f'"origin" "{door["origin"]}"\n')
                 f.write('"speed" "100"\n')
                 f.write('"sounds" "2"\n')  # Medieval door sound
                 f.write('"wait" "3"\n')  # Wait 3 seconds before closing
@@ -976,14 +975,15 @@ class QuakeDungeonGenerator:
                 door_z_base = self.floor_height
 
                 # Adjust door position based on direction
-                if door["direction"] == 'north' or door["direction"] == 'south':
-                    # Door oriented along X axis (horizontal)
+                # The direction indicates which wall the door is on
+                if door["direction"] == 'east' or door["direction"] == 'west':
+                    # Door is on a vertical wall (runs north-south), wide in X direction
                     x1 = door_x - door_width // 2
                     x2 = door_x + door_width // 2
                     y1 = door_y - door_thickness // 2
                     y2 = door_y + door_thickness // 2
-                else:  # east or west
-                    # Door oriented along Y axis (vertical)
+                else:  # north or south
+                    # Door is on a horizontal wall (runs east-west), wide in Y direction
                     x1 = door_x - door_thickness // 2
                     x2 = door_x + door_thickness // 2
                     y1 = door_y - door_width // 2
