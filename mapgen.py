@@ -436,15 +436,133 @@ class QuakeDungeonGenerator:
         self.grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
         self.rooms = []
         self.corridors = []
+
+        # Define coherent texture themes
+        # Each theme has floor, wall, and ceiling textures that work well together
+        self.texture_themes = {
+            'medieval_stone': {
+                'name': 'Medieval Stone',
+                'floor': ['sfloor1_2', 'sfloor4_1', 'sfloor4_2', 'ground1_6'],
+                'wall': ['stone1_3', 'stone1_5', 'stone1_7', 'rock3_2', 'rock4_1'],
+                'ceiling': ['ceiling1_3', 'ceiling4', 'ceil1_1'],
+                'related': ['brick', 'stone_dark', 'dungeon']  # Can transition to these
+            },
+            'brick': {
+                'name': 'Brick',
+                'floor': ['sfloor4_4', 'sfloor4_6', 'ground1_7'],
+                'wall': ['bricka2_1', 'bricka2_2', 'bricka2_4', 'bricka2_6'],
+                'ceiling': ['ceiling1_3', 'ceiling4'],
+                'related': ['medieval_stone', 'city', 'stone_dark']
+            },
+            'wood': {
+                'name': 'Wood',
+                'floor': ['woodflr1_2', 'woodflr1_4', 'woodflr1_5'],
+                'wall': ['wood1_1', 'wood1_5', 'wood1_7', 'wwood1_5', 'wwood1_7'],
+                'ceiling': ['wceiling4', 'wceiling5', 'ceiling4'],
+                'related': ['medieval_stone', 'wizard', 'dungeon']
+            },
+            'metal_basic': {
+                'name': 'Basic Metal',
+                'floor': ['metflor2_1', 'sfloor4_7'],
+                'wall': ['metal1_1', 'metal1_2', 'metal1_3', 'metal2_1', 'metal2_2'],
+                'ceiling': ['ceiling4', 'ceiling5'],
+                'related': ['metal_tech', 'metal_industrial', 'city']
+            },
+            'metal_tech': {
+                'name': 'Tech Metal',
+                'floor': ['metflor2_1', 'afloor3_1'],
+                'wall': ['tech01_1', 'tech02_1', 'tech04_1', 'tech04_2', 'comp1_1', 'comp1_2'],
+                'ceiling': ['ceiling5', 'ceiling4'],
+                'related': ['metal_basic', 'metal_industrial', 'city']
+            },
+            'metal_industrial': {
+                'name': 'Industrial Metal',
+                'floor': ['metflor2_1', 'sfloor4_8'],
+                'wall': ['metal4_2', 'metal4_4', 'metal5_1', 'metal5_2', 'wmet2_1', 'wmet4_2'],
+                'ceiling': ['ceiling5'],
+                'related': ['metal_basic', 'metal_tech']
+            },
+            'city': {
+                'name': 'City',
+                'floor': ['ground1_1', 'ground1_5', 'ground1_8', 'afloor1_3'],
+                'wall': ['city4_1', 'city5_1', 'city2_1', 'city4_5', 'city5_2'],
+                'ceiling': ['ceiling4', 'ceiling5'],
+                'related': ['brick', 'metal_basic', 'metal_tech']
+            },
+            'dungeon': {
+                'name': 'Dungeon',
+                'floor': ['ground1_2', 'sfloor1_2', 'sfloor4_1'],
+                'wall': ['grave01_1', 'grave02_1', 'dung01_1', 'dung01_2', 'dung01_3'],
+                'ceiling': ['ceiling1_3', 'ceil1_1'],
+                'related': ['stone_dark', 'medieval_stone', 'wood']
+            },
+            'stone_dark': {
+                'name': 'Dark Stone',
+                'floor': ['sfloor4_2', 'ground1_6'],
+                'wall': ['rock3_7', 'rock3_8', 'rock4_2', 'rock5_2', 'stone1_7'],
+                'ceiling': ['ceiling1_3', 'ceil1_1'],
+                'related': ['medieval_stone', 'dungeon', 'brick']
+            },
+            'wizard': {
+                'name': 'Wizard',
+                'floor': ['azfloor1_1', 'woodflr1_2'],
+                'wall': ['wizwood1_2', 'wizwood1_4', 'wizwood1_6', 'wizmet1_2', 'wizmet1_4'],
+                'ceiling': ['ceiling1_3', 'wceiling4'],
+                'related': ['wood', 'medieval_stone', 'metal_basic']
+            },
+            'copper': {
+                'name': 'Copper',
+                'floor': ['sfloor4_5', 'metflor2_1'],
+                'wall': ['cop1_1', 'cop1_2', 'cop1_4', 'cop2_1', 'cop3_1', 'ecop1_1'],
+                'ceiling': ['ceiling4', 'ceiling5'],
+                'related': ['metal_basic', 'metal_industrial', 'wizard']
+            },
+        }
+
+        # List of all theme names for random selection
+        self.theme_names = list(self.texture_themes.keys())
+
+        # Track the last theme used for smooth transitions
+        self.last_theme = None
         
+    def _choose_next_theme(self):
+        """Choose a theme for the next room with smooth transitions
+
+        Returns:
+            Theme name (string)
+        """
+        if not self.last_theme or not self.texture_variety:
+            # First room or variety disabled - pick any theme
+            theme = random.choice(self.theme_names)
+            self.last_theme = theme
+            return theme
+
+        # Try to pick a related theme 70% of the time for smooth transitions
+        if random.random() < 0.7:
+            last_theme_data = self.texture_themes[self.last_theme]
+            related_themes = last_theme_data.get('related', [])
+
+            if related_themes:
+                # Pick from related themes
+                theme = random.choice(related_themes)
+                self.last_theme = theme
+                return theme
+
+        # 30% of the time (or if no related themes), pick any theme for variety
+        theme = random.choice(self.theme_names)
+        self.last_theme = theme
+        return theme
+
     def generate(self):
         """Generate the dungeon layout"""
         # Generate rooms
         for _ in range(self.num_rooms):
             room = self._place_random_room()
             if room:
+                # Assign a theme to this room
+                room['theme'] = self._choose_next_theme()
                 self.rooms.append(room)
-        
+
         # Connect rooms
         self._connect_rooms()
         
@@ -490,25 +608,36 @@ class QuakeDungeonGenerator:
             x2 = room2['x'] + room2['width'] // 2
             y2 = room2['y'] + room2['height'] // 2
 
+            # Blend themes for corridor - randomly pick one of the connected room themes
+            corridor_theme = random.choice([room1.get('theme'), room2.get('theme')])
+
             # Create L-shaped corridor
             if random.random() < 0.5:
                 # Horizontal then vertical
-                self.corridors.append({'x': min(x1, x2), 'y': y1, 'width': abs(x2 - x1) + 1, 'height': 1})
-                self.corridors.append({'x': x2, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1})
+                self.corridors.append({'x': min(x1, x2), 'y': y1, 'width': abs(x2 - x1) + 1, 'height': 1, 'theme': corridor_theme})
+                self.corridors.append({'x': x2, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1, 'theme': corridor_theme})
             else:
                 # Vertical then horizontal
-                self.corridors.append({'x': x1, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1})
-                self.corridors.append({'x': min(x1, x2), 'y': y2, 'width': abs(x2 - x1) + 1, 'height': 1})
+                self.corridors.append({'x': x1, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1, 'theme': corridor_theme})
+                self.corridors.append({'x': min(x1, x2), 'y': y2, 'width': abs(x2 - x1) + 1, 'height': 1, 'theme': corridor_theme})
 
-    def get_texture(self, texture_type):
-        """Get a texture from the appropriate pool
+    def get_texture(self, texture_type, theme=None):
+        """Get a texture from the appropriate pool or theme
 
         Args:
             texture_type: One of 'floor', 'ceiling', or 'wall'
+            theme: Optional theme name to use (for room-specific textures)
 
         Returns:
             Texture name string
         """
+        # If a theme is specified, use theme-specific textures
+        if theme and theme in self.texture_themes:
+            theme_data = self.texture_themes[theme]
+            if texture_type in theme_data:
+                return random.choice(theme_data[texture_type])
+
+        # Fallback to old behavior if no theme or theme not found
         if texture_type not in self.texture_pools:
             return 'base'  # Fallback texture
 
@@ -586,8 +715,40 @@ class QuakeDungeonGenerator:
 
         return entities, entity_num
 
+    def _build_theme_map(self):
+        """Build a mapping of grid cells to themes
+
+        Returns:
+            2D array where each cell contains the theme name or None
+        """
+        theme_map = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
+
+        # Map each room's cells to its theme
+        for room in self.rooms:
+            theme = room.get('theme', None)
+            for dy in range(room['height']):
+                for dx in range(room['width']):
+                    theme_map[room['y'] + dy][room['x'] + dx] = theme
+
+        # Map corridor cells to their themes
+        for corridor in self.corridors:
+            theme = corridor.get('theme', None)
+            for dy in range(corridor['height']):
+                for dx in range(corridor['width']):
+                    cy = corridor['y'] + dy
+                    cx = corridor['x'] + dx
+                    if cy < self.grid_size and cx < self.grid_size:
+                        # Only override if not already set (rooms take precedence)
+                        if theme_map[cy][cx] is None:
+                            theme_map[cy][cx] = theme
+
+        return theme_map
+
     def export_map(self, filename):
         """Export the dungeon as a Quake .map file"""
+        # Build theme map for texture selection
+        theme_map = self._build_theme_map()
+
         with open(filename, 'w') as f:
             # Write header
             f.write('// Game: Quake\n')
@@ -603,38 +764,60 @@ class QuakeDungeonGenerator:
             map_size = self.grid_size * self.cell_size
             padding = 64
             wall_thick = 32
-            
-            # Create outer boundary box to seal the map
-            # Floor (entire map area)
-            self._write_brush(f, -padding, -padding, -wall_thick,
-                            map_size + padding, map_size + padding, 0, 'floor')
-            
-            # Ceiling (entire map area)
-            self._write_brush(f, -padding, -padding, self.ceiling_height,
-                            map_size + padding, map_size + padding, 
-                            self.ceiling_height + wall_thick, 'ceiling')
-            
+            floor_thick = 32
+
+            # Create outer boundary walls to seal the map
             # Outer walls
             # North wall
-            self._write_brush(f, -padding, -padding - wall_thick, 0,
-                            map_size + padding, -padding, self.ceiling_height, 'wall')
-            
+            self._write_brush(f, -padding, -padding - wall_thick, -floor_thick,
+                            map_size + padding, -padding, self.ceiling_height + wall_thick, 'wall')
+
             # South wall
-            self._write_brush(f, -padding, map_size + padding, 0,
-                            map_size + padding, map_size + padding + wall_thick, 
-                            self.ceiling_height, 'wall')
-            
+            self._write_brush(f, -padding, map_size + padding, -floor_thick,
+                            map_size + padding, map_size + padding + wall_thick,
+                            self.ceiling_height + wall_thick, 'wall')
+
             # West wall
-            self._write_brush(f, -padding - wall_thick, -padding, 0,
-                            -padding, map_size + padding, self.ceiling_height, 'wall')
-            
+            self._write_brush(f, -padding - wall_thick, -padding, -floor_thick,
+                            -padding, map_size + padding, self.ceiling_height + wall_thick, 'wall')
+
             # East wall
-            self._write_brush(f, map_size + padding, -padding, 0,
-                            map_size + padding + wall_thick, map_size + padding, 
-                            self.ceiling_height, 'wall')
-            
-            # Create a grid of all cells, then carve out rooms/corridors
-            # by creating wall brushes between them
+            self._write_brush(f, map_size + padding, -padding, -floor_thick,
+                            map_size + padding + wall_thick, map_size + padding,
+                            self.ceiling_height + wall_thick, 'wall')
+
+            # Write floor and ceiling for each room with its theme
+            for room in self.rooms:
+                room_theme = room.get('theme', None)
+                x1 = room['x'] * self.cell_size
+                y1 = room['y'] * self.cell_size
+                x2 = x1 + (room['width'] * self.cell_size)
+                y2 = y1 + (room['height'] * self.cell_size)
+
+                # Floor for this room
+                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', room_theme)
+
+                # Ceiling for this room
+                self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
+                                self.ceiling_height + wall_thick, 'ceiling', room_theme)
+
+            # Write floor and ceiling for corridors (using their assigned themes)
+            for corridor in self.corridors:
+                corridor_theme = corridor.get('theme', None)
+
+                x1 = corridor['x'] * self.cell_size
+                y1 = corridor['y'] * self.cell_size
+                x2 = x1 + (corridor['width'] * self.cell_size)
+                y2 = y1 + (corridor['height'] * self.cell_size)
+
+                # Floor for corridor
+                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', corridor_theme)
+
+                # Ceiling for corridor
+                self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
+                                self.ceiling_height + wall_thick, 'ceiling', corridor_theme)
+
+            # Create wall brushes for empty cells
             for y in range(self.grid_size):
                 for x in range(self.grid_size):
                     if not self.grid[y][x]:  # Empty space, fill with walls
@@ -642,9 +825,10 @@ class QuakeDungeonGenerator:
                         y1 = y * self.cell_size
                         x2 = x1 + self.cell_size
                         y2 = y1 + self.cell_size
-                        
-                        # Fill this cell with a solid block
-                        self._write_brush(f, x1, y1, 0, x2, y2, self.ceiling_height, 'wall')
+
+                        # Fill this cell with a solid block (no specific theme)
+                        self._write_brush(f, x1, y1, -floor_thick, x2, y2,
+                                        self.ceiling_height + wall_thick, 'wall')
             
             f.write('}\n')
             
@@ -689,7 +873,7 @@ class QuakeDungeonGenerator:
                         f.write('}\n')
 
     
-    def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type):
+    def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type, theme=None):
         """Write a brush (rectangular box) to the map file with appropriate textures
 
         Args:
@@ -697,15 +881,16 @@ class QuakeDungeonGenerator:
             x1, y1, z1: Minimum coordinates of the brush
             x2, y2, z2: Maximum coordinates of the brush
             texture_type: Type of surface ('floor', 'ceiling', 'wall')
+            theme: Optional theme name to use for texture selection
         """
         f.write('{\n')
 
         # Get textures for each surface
         # For floors and ceilings, use the specified type
         # For walls of floor/ceiling brushes, use wall textures
-        floor_texture = self.get_texture('floor')
-        ceiling_texture = self.get_texture('ceiling')
-        wall_texture = self.get_texture('wall')
+        floor_texture = self.get_texture('floor', theme)
+        ceiling_texture = self.get_texture('ceiling', theme)
+        wall_texture = self.get_texture('wall', theme)
 
         # Determine which texture to use for each face based on brush type
         if texture_type == 'floor':
@@ -757,6 +942,14 @@ class QuakeDungeonGenerator:
             print()
         print(f"\nGenerated {len(self.rooms)} rooms and {len(self.corridors)} corridor segments")
 
+        # Print theme assignments
+        if self.texture_variety and self.rooms:
+            print("\nRoom Themes:")
+            for i, room in enumerate(self.rooms):
+                theme_name = room.get('theme', 'unknown')
+                theme_display = self.texture_themes.get(theme_name, {}).get('name', theme_name)
+                print(f"  Room {i+1}: {theme_display}")
+
 
 if __name__ == '__main__':
     # Generate a dungeon
@@ -787,7 +980,7 @@ if __name__ == '__main__':
     generator.print_layout()
 
     # Export to .map file
-    output_file = '/mnt/e/SteamLibrary/steamapps/common/Quake/id1/maps/random_dungeon.map'
+    output_file = 'random_dungeon.map'  # Use local directory
     generator.export_map(output_file)
     print(f"\nMap file created: {output_file}")
     print(f"WAD path in map: {generator.wad_path if generator.wad_path else '(not specified)'}")
