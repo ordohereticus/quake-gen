@@ -14,7 +14,7 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True, wad_path="wads/id.wad"):
+    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True, wad_path="wads/id.wad", spawn_entities=True, spawn_chance=0.7):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
@@ -25,6 +25,8 @@ class QuakeDungeonGenerator:
                   "gfx.wad" - Single WAD file in Quake directory
                   "/full/path/to/gfx.wad" - Absolute path
                   "gfx.wad;gfx2.wad" - Multiple WAD files (semicolon separated)
+        spawn_entities: If True, spawn items/monsters in rooms
+        spawn_chance: Probability (0-1) that a room will have entity spawns
         """
         self.grid_size = grid_size
         self.room_min = room_min
@@ -36,6 +38,8 @@ class QuakeDungeonGenerator:
         self.ceiling_height = 192
         self.texture_variety = texture_variety
         self.wad_path = wad_path
+        self.spawn_entities = spawn_entities
+        self.spawn_chance = spawn_chance
 
         # Texture pools for different surface types
         # NOTE: Texture names are CASE-SENSITIVE and must exist in your WAD files!
@@ -54,6 +58,49 @@ class QuakeDungeonGenerator:
                 'metal1_1',     # Basic wall
                 'adoor09_2',     # Door texture
                 'light3_3',    # Light texture
+            ]
+        }
+
+        # Entity pools for spawning in rooms
+        self.entity_pools = {
+            'weapons': [
+                'weapon_shotgun',
+                'weapon_supershotgun',
+                'weapon_nailgun',
+                'weapon_supernailgun',
+                'weapon_grenadelauncher',
+                'weapon_rocketlauncher',
+            ],
+            'ammo': [
+                'item_shells',
+                'item_spikes',
+                'item_rockets',
+                'item_cells',
+            ],
+            'health': [
+                'item_health',
+            ],
+            'armor': [
+                'item_armor1',
+                'item_armor2',
+                'item_armorInv',
+            ],
+            'monsters': [
+                'monster_army',
+                'monster_dog',
+                'monster_ogre',
+                'monster_knight',
+                'monster_hell_knight',
+                'monster_demon1',
+                'monster_zombie',
+                'monster_enforcer',
+                'monster_grunt',
+            ],
+            'powerups': [
+                'item_artifact_envirosuit',
+                'item_artifact_invisibility',
+                'item_artifact_invulnerability',
+                'item_artifact_super_damage',
             ]
         }
 
@@ -155,7 +202,62 @@ class QuakeDungeonGenerator:
             self.texture_pools[texture_type] = textures
         else:
             raise ValueError(f"Invalid texture_type '{texture_type}' or empty texture list")
-    
+
+    def _spawn_room_entities(self, room, entity_num):
+        """Spawn entities in a room
+
+        Args:
+            room: Room dictionary with x, y, width, height
+            entity_num: Starting entity number for spawned entities
+
+        Returns:
+            Tuple of (entities_list, next_entity_num)
+            entities_list: List of entity dictionaries with classname and origin
+        """
+        entities = []
+
+        # Check if this room should have spawns
+        if random.random() > self.spawn_chance:
+            return entities, entity_num
+
+        # Calculate room bounds in Quake units
+        room_x1 = room['x'] * self.cell_size
+        room_y1 = room['y'] * self.cell_size
+        room_x2 = room_x1 + (room['width'] * self.cell_size)
+        room_y2 = room_y1 + (room['height'] * self.cell_size)
+
+        # Add some padding from walls (32 units)
+        padding = 48
+        room_x1 += padding
+        room_y1 += padding
+        room_x2 -= padding
+        room_y2 -= padding
+
+        # Decide how many entities to spawn (1-3)
+        num_entities = random.randint(1, 3)
+
+        # Pick random entity categories
+        categories = list(self.entity_pools.keys())
+
+        for i in range(num_entities):
+            # Pick a random category
+            category = random.choice(categories)
+            entity_class = random.choice(self.entity_pools[category])
+
+            # Generate random position within room bounds
+            x = random.randint(int(room_x1), int(room_x2))
+            y = random.randint(int(room_y1), int(room_y2))
+            z = self.floor_height + 24  # Spawn at floor level + 24 units
+
+            entities.append({
+                'num': entity_num,
+                'classname': entity_class,
+                'origin': f"{x} {y} {z}"
+            })
+            entity_num += 1
+
+        return entities, entity_num
+
     def export_map(self, filename):
         """Export the dungeon as a Quake .map file"""
         with open(filename, 'w') as f:
@@ -232,13 +334,14 @@ class QuakeDungeonGenerator:
                 f.write('"angle" "0"\n')
                 f.write('}\n')
             
-            # Add lights to each room
+            # Add lights and entities to each room
             entity_num = 2
             for room in self.rooms:
+                # Add light in center of room
                 x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) // 2
                 y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) // 2
                 z = self.ceiling_height - 32
-                
+
                 f.write(f'// entity {entity_num}\n')
                 f.write('{\n')
                 f.write('"classname" "light"\n')
@@ -246,6 +349,16 @@ class QuakeDungeonGenerator:
                 f.write('"light" "600"\n')
                 f.write('}\n')
                 entity_num += 1
+
+                # Spawn entities in room if enabled
+                if self.spawn_entities:
+                    room_entities, entity_num = self._spawn_room_entities(room, entity_num)
+                    for entity in room_entities:
+                        f.write(f'// entity {entity["num"]}\n')
+                        f.write('{\n')
+                        f.write(f'"classname" "{entity["classname"]}"\n')
+                        f.write(f'"origin" "{entity["origin"]}"\n')
+                        f.write('}\n')
 
     
     def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type):
@@ -346,7 +459,7 @@ if __name__ == '__main__':
     generator.print_layout()
 
     # Export to .map file
-    output_file = '/mnt/e/SteamLibrary/steamapps/common/Quake/id1/maps/random_dungeon.map'
+    output_file = 'random_dungeon.map'
     generator.export_map(output_file)
     print(f"\nMap file created: {output_file}")
     print(f"WAD path in map: {generator.wad_path if generator.wad_path else '(not specified)'}")
@@ -355,6 +468,13 @@ if __name__ == '__main__':
     print(f"  - Floor textures: {len(generator.texture_pools['floor'])} options")
     print(f"  - Wall textures: {len(generator.texture_pools['wall'])} options")
     print(f"  - Ceiling textures: {len(generator.texture_pools['ceiling'])} options")
+    print("\nEntity Spawning:")
+    print(f"  - Spawning enabled: {generator.spawn_entities}")
+    print(f"  - Spawn chance per room: {int(generator.spawn_chance * 100)}%")
+    if generator.spawn_entities:
+        total_entities = sum(len(pool) for pool in generator.entity_pools.values())
+        print(f"  - Total entity types available: {total_entities}")
+        print(f"  - Categories: {', '.join(generator.entity_pools.keys())}")
     print("\nTo compile this map:")
     print("1. Run: qbsp random_dungeon.map")
     print("   (or with explicit WAD path: qbsp -wadpath /path/to/quake/id1 random_dungeon.map)")
