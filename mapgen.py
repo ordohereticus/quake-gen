@@ -1029,7 +1029,7 @@ if __name__ == '__main__':
     #)
 
     generator = QuakeDungeonGenerator(
-        grid_size=64,  # 128 cells
+        grid_size=64,  # 64 cells
         room_min=3,     # Min room size is 3 cells
         room_max=10,    # Max room size is 10 cells
         num_rooms=50,
@@ -1055,4 +1055,3 @@ if __name__ == '__main__':
         total_entities = sum(len(pool) for pool in generator.entity_pools.values())
         print(f"  - Total entity types available: {total_entities}")
         print(f"  - Categories: {', '.join(generator.entity_pools.keys())}")
-
