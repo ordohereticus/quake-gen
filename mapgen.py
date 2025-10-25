@@ -14,7 +14,7 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=12, room_min=12, room_max=200, num_rooms=100, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=0.7):
+    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=0.7):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
@@ -646,98 +646,25 @@ class QuakeDungeonGenerator:
     
     def _connect_rooms(self):
         """Connect rooms with corridors"""
-        corridor_size = 2  # Corridors will be 2x2 cells wide/high
-
         for i in range(len(self.rooms) - 1):
             room1 = self.rooms[i]
             room2 = self.rooms[i + 1]
 
-            # Get centers (in grid cells)
+            # Get centers
             x1 = room1['x'] + room1['width'] // 2
             y1 = room1['y'] + room1['height'] // 2
             x2 = room2['x'] + room2['width'] // 2
             y2 = room2['y'] + room2['height'] // 2
 
-            # Blend themes for corridor
-            corridor_theme = random.choice([room1.get('theme'), room2.get('theme')])
-
-            # --- CORRIDOR GENERATION ---
-
-            # Determine the starting and ending points for the L-shape path
-            current_x = x1
-            current_y = y1
-
-            # 1. First segment (Horizontal or Vertical)
+            # Create L-shaped corridor
             if random.random() < 0.5:
-                # Go Horizontal (X-axis) first
-                x_start = min(current_x, x2)
-                x_end = max(current_x, x2)
-
-                # Corridor segment 1: Horizontal
-                corridor1 = {
-                    'x': x_start,
-                    'y': current_y - corridor_size // 2, # Center the corridor on the Y-axis
-                    'width': x_end - x_start + 1,
-                    'height': corridor_size,
-                    'theme': corridor_theme
-                }
-                self._assign_corridor_textures(corridor1)
-                self.corridors.append(corridor1)
-                current_x = x2
-
-                # Corridor segment 2: Vertical
-                y_start = min(current_y, y2)
-                y_end = max(current_y, y2)
-                corridor2 = {
-                    'x': current_x - corridor_size // 2, # Center the corridor on the X-axis
-                    'y': y_start,
-                    'width': corridor_size,
-                    'height': y_end - y_start + 1,
-                    'theme': corridor_theme
-                }
-                self._assign_corridor_textures(corridor2)
-                self.corridors.append(corridor2)
+                # Horizontal then vertical
+                self.corridors.append({'x': min(x1, x2), 'y': y1, 'width': abs(x2 - x1) + 1, 'height': 1})
+                self.corridors.append({'x': x2, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1})
             else:
-                # Go Vertical (Y-axis) first
-                y_start = min(current_y, y2)
-                y_end = max(current_y, y2)
-
-                # Corridor segment 1: Vertical
-                corridor1 = {
-                    'x': current_x - corridor_size // 2, # Center the corridor on the X-axis
-                    'y': y_start,
-                    'width': corridor_size,
-                    'height': y_end - y_start + 1,
-                    'theme': corridor_theme
-                }
-                self._assign_corridor_textures(corridor1)
-                self.corridors.append(corridor1)
-                current_y = y2
-
-                # Corridor segment 2: Horizontal
-                x_start = min(current_x, x2)
-                x_end = max(current_x, x2)
-                corridor2 = {
-                    'x': x_start,
-                    'y': current_y - corridor_size // 2, # Center the corridor on the Y-axis
-                    'width': x_end - x_start + 1,
-                    'height': corridor_size,
-                    'theme': corridor_theme
-                }
-                self._assign_corridor_textures(corridor2)
-                self.corridors.append(corridor2)
-
-            # Mark corridor space as occupied in the grid for visibility in print_layout
-            for corridor in self.corridors[-2:]: # Only consider the last two segments added
-                # Ensure coordinates are within grid bounds
-                x_start = max(0, corridor['x'])
-                y_start = max(0, corridor['y'])
-                x_end = min(self.grid_size, corridor['x'] + corridor['width'])
-                y_end = min(self.grid_size, corridor['y'] + corridor['height'])
-
-                for dy in range(y_start, y_end):
-                    for dx in range(x_start, x_end):
-                        self.grid[dy][dx] = True # Mark as occupied (corridor)
+                # Vertical then horizontal
+                self.corridors.append({'x': x1, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1})
+                self.corridors.append({'x': min(x1, x2), 'y': y2, 'width': abs(x2 - x1) + 1, 'height': 1})
 
     def get_texture(self, texture_type, room_or_corridor=None):
         """Get a texture from the appropriate pool or from pre-assigned room textures
@@ -973,7 +900,7 @@ class QuakeDungeonGenerator:
                 f.write('{\n')
                 f.write('"classname" "light"\n')
                 f.write(f'"origin" "{x} {y} {z}"\n')
-                f.write('"light" "2000"\n')
+                f.write('"light" "800"\n')
                 f.write('}\n')
                 entity_num += 1
 
@@ -1081,22 +1008,16 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("="*60 + "\n")
 
-    #generator = QuakeDungeonGenerator(
-    #    grid_size=12,
-    #    room_min=2,
-    #    room_max=4,
-    #    num_rooms=100,
-    #    texture_variety=True,  # Enable random texture selection for variety
-    #    wad_path="id.wad;"  # WAD files for texture loading
-    #)
-
     generator = QuakeDungeonGenerator(
-        grid_size=64,  # 64 cells
-        room_min=3,     # Min room size is 3 cells
-        room_max=10,    # Max room size is 10 cells
-        num_rooms=50,
-        texture_variety=True
+        grid_size=12,
+        room_min=2,
+        room_max=4,
+        num_rooms=100,
+        texture_variety=True,  # Enable random texture selection for variety
+        wad_path="id.wad;"  # WAD files for texture loading
     )
+
+    
     generator.generate()
     generator.print_layout()
 
