@@ -823,6 +823,140 @@ class QuakeDungeonGenerator:
 
         return entities, entity_num
 
+    def _generate_room_walls(self, f, room):
+        """Generate perimeter walls for a room with openings for doors
+
+        Args:
+            f: File handle to write to
+            room: Room dictionary with x, y, width, height
+        """
+        # Calculate room bounds in Quake units
+        room_x1 = room['x'] * self.cell_size
+        room_y1 = room['y'] * self.cell_size
+        room_x2 = room_x1 + (room['width'] * self.cell_size)
+        room_y2 = room_y1 + (room['height'] * self.cell_size)
+
+        wall_thick = self.wall_thickness
+        door_opening_width = 64  # Width of door opening
+        door_opening_height = 128  # Height of door opening
+
+        # Find all doors associated with this room
+        room_doors = []
+        for door in self.doors:
+            origin_parts = door["origin"].split()
+            door_x = float(origin_parts[0])
+            door_y = float(origin_parts[1])
+
+            # Check if door is on this room's perimeter
+            # Allow some tolerance for floating point comparisons
+            tolerance = 1
+            on_north = abs(door_y - room_y2) < self.cell_size / 2
+            on_south = abs(door_y - room_y1) < self.cell_size / 2
+            on_east = abs(door_x - room_x2) < self.cell_size / 2
+            on_west = abs(door_x - room_x1) < self.cell_size / 2
+
+            if (on_north or on_south or on_east or on_west):
+                room_doors.append({
+                    'x': door_x,
+                    'y': door_y,
+                    'direction': door['direction']
+                })
+
+        # Generate each wall with openings for doors
+        # NORTH WALL (top, along X axis)
+        north_doors = [d for d in room_doors if abs(d['y'] - room_y2) < self.cell_size / 2]
+        self._generate_wall_segments(f, room_x1, room_y2, room_x2, room_y2 + wall_thick,
+                                     north_doors, 'horizontal', room)
+
+        # SOUTH WALL (bottom, along X axis)
+        south_doors = [d for d in room_doors if abs(d['y'] - room_y1) < self.cell_size / 2]
+        self._generate_wall_segments(f, room_x1, room_y1 - wall_thick, room_x2, room_y1,
+                                     south_doors, 'horizontal', room)
+
+        # EAST WALL (right, along Y axis)
+        east_doors = [d for d in room_doors if abs(d['x'] - room_x2) < self.cell_size / 2]
+        self._generate_wall_segments(f, room_x2, room_y1, room_x2 + wall_thick, room_y2,
+                                     east_doors, 'vertical', room)
+
+        # WEST WALL (left, along Y axis)
+        west_doors = [d for d in room_doors if abs(d['x'] - room_x1) < self.cell_size / 2]
+        self._generate_wall_segments(f, room_x1 - wall_thick, room_y1, room_x1, room_y2,
+                                     west_doors, 'vertical', room)
+
+    def _generate_wall_segments(self, f, x1, y1, x2, y2, doors, orientation, room):
+        """Generate wall segments with openings for doors
+
+        Args:
+            f: File handle
+            x1, y1, x2, y2: Wall bounds
+            doors: List of doors on this wall
+            orientation: 'horizontal' or 'vertical'
+            room: Room dictionary for textures
+        """
+        door_opening_width = 64
+        door_opening_height = 128
+
+        if orientation == 'horizontal':
+            # Wall runs along X axis
+            if not doors:
+                # No doors, create full wall
+                self._write_brush(f, x1, y1, self.floor_height, x2, y2, self.ceiling_height, 'wall', room)
+            else:
+                # Sort doors by X position
+                sorted_doors = sorted(doors, key=lambda d: d['x'])
+
+                # Create wall segments between doors
+                current_x = x1
+                for door in sorted_doors:
+                    door_start = door['x'] - door_opening_width / 2
+                    door_end = door['x'] + door_opening_width / 2
+
+                    # Wall segment before door
+                    if current_x < door_start:
+                        self._write_brush(f, current_x, y1, self.floor_height,
+                                        door_start, y2, self.ceiling_height, 'wall', room)
+
+                    # Create wall above door opening
+                    self._write_brush(f, door_start, y1, self.floor_height + door_opening_height,
+                                    door_end, y2, self.ceiling_height, 'wall', room)
+
+                    current_x = door_end
+
+                # Final wall segment after last door
+                if current_x < x2:
+                    self._write_brush(f, current_x, y1, self.floor_height,
+                                    x2, y2, self.ceiling_height, 'wall', room)
+        else:
+            # Wall runs along Y axis
+            if not doors:
+                # No doors, create full wall
+                self._write_brush(f, x1, y1, self.floor_height, x2, y2, self.ceiling_height, 'wall', room)
+            else:
+                # Sort doors by Y position
+                sorted_doors = sorted(doors, key=lambda d: d['y'])
+
+                # Create wall segments between doors
+                current_y = y1
+                for door in sorted_doors:
+                    door_start = door['y'] - door_opening_width / 2
+                    door_end = door['y'] + door_opening_width / 2
+
+                    # Wall segment before door
+                    if current_y < door_start:
+                        self._write_brush(f, x1, current_y, self.floor_height,
+                                        x2, door_start, self.ceiling_height, 'wall', room)
+
+                    # Create wall above door opening
+                    self._write_brush(f, x1, door_start, self.floor_height + door_opening_height,
+                                    x2, door_end, self.ceiling_height, 'wall', room)
+
+                    current_y = door_end
+
+                # Final wall segment after last door
+                if current_y < y2:
+                    self._write_brush(f, x1, current_y, self.floor_height,
+                                    x2, y2, self.ceiling_height, 'wall', room)
+
     def _build_theme_map(self):
         """Build a mapping of grid cells to themes
 
@@ -895,6 +1029,10 @@ class QuakeDungeonGenerator:
                 # Ceiling for this room (using room's specific textures)
                 self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
                                 self.ceiling_height + wall_thick, 'ceiling', room)
+
+            # Generate perimeter walls for each room with door openings
+            for room in self.rooms:
+                self._generate_room_walls(f, room)
 
             # Create wall brushes for empty cells
             for y in range(self.grid_size):
