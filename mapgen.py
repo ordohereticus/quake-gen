@@ -435,7 +435,7 @@ class QuakeDungeonGenerator:
         # Grid to track occupied spaces
         self.grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
         self.rooms = []
-        self.corridors = []
+        self.doors = []
 
         # Define coherent texture themes
         # Each theme has floor, wall, and ceiling textures that work well together
@@ -576,29 +576,6 @@ class QuakeDungeonGenerator:
         room['wall_texture'] = random.choice(theme['wall'])
         room['ceiling_texture'] = random.choice(theme['ceiling'])
 
-    def _assign_corridor_textures(self, corridor):
-        """Assign specific textures to a corridor based on its theme
-
-        Args:
-            corridor: Corridor dictionary with theme assigned
-
-        Modifies corridor dictionary to add 'floor_texture', 'wall_texture', 'ceiling_texture'
-        """
-        theme_name = corridor.get('theme')
-        if not theme_name or theme_name not in self.texture_themes:
-            # Fallback to default pools
-            corridor['floor_texture'] = random.choice(self.texture_pools['floor'])
-            corridor['wall_texture'] = random.choice(self.texture_pools['wall'])
-            corridor['ceiling_texture'] = random.choice(self.texture_pools['ceiling'])
-            return
-
-        theme = self.texture_themes[theme_name]
-
-        # Pick one texture from each category for this corridor
-        corridor['floor_texture'] = random.choice(theme['floor'])
-        corridor['wall_texture'] = random.choice(theme['wall'])
-        corridor['ceiling_texture'] = random.choice(theme['ceiling'])
-
     def generate(self):
         """Generate the dungeon layout"""
         # Generate rooms
@@ -611,8 +588,8 @@ class QuakeDungeonGenerator:
                 self._assign_room_textures(room)
                 self.rooms.append(room)
 
-        # Connect rooms
-        self._connect_rooms()
+        # Create doors between adjacent rooms
+        self._create_doors()
         
     def _place_random_room(self, max_attempts=50):
         """Try to place a random room on the grid"""
@@ -644,27 +621,113 @@ class QuakeDungeonGenerator:
                     return False
         return True
     
-    def _connect_rooms(self):
-        """Connect rooms with corridors"""
-        for i in range(len(self.rooms) - 1):
-            room1 = self.rooms[i]
-            room2 = self.rooms[i + 1]
+    def _find_adjacent_rooms(self, room1, room2):
+        """Check if two rooms are adjacent and find the shared wall
 
-            # Get centers
-            x1 = room1['x'] + room1['width'] // 2
-            y1 = room1['y'] + room1['height'] // 2
-            x2 = room2['x'] + room2['width'] // 2
-            y2 = room2['y'] + room2['height'] // 2
+        Args:
+            room1, room2: Room dictionaries with x, y, width, height
 
-            # Create L-shaped corridor
-            if random.random() < 0.5:
-                # Horizontal then vertical
-                self.corridors.append({'x': min(x1, x2), 'y': y1, 'width': abs(x2 - x1) + 1, 'height': 1})
-                self.corridors.append({'x': x2, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1})
-            else:
-                # Vertical then horizontal
-                self.corridors.append({'x': x1, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1})
-                self.corridors.append({'x': min(x1, x2), 'y': y2, 'width': abs(x2 - x1) + 1, 'height': 1})
+        Returns:
+            Dictionary with adjacency info or None if not adjacent
+            {
+                'direction': 'north'|'south'|'east'|'west',
+                'position': (grid_x, grid_y) - position for door in grid coordinates
+            }
+        """
+        # Check if rooms share a wall (are adjacent)
+        # East-West adjacency
+        if room1['x'] + room1['width'] == room2['x']:
+            # room1 is west of room2
+            # Check if they overlap in y
+            y_overlap_start = max(room1['y'], room2['y'])
+            y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+            if y_overlap_end > y_overlap_start:
+                # They overlap, place door in middle of overlap
+                door_y = (y_overlap_start + y_overlap_end) // 2
+                return {
+                    'direction': 'east',  # Door faces east from room1's perspective
+                    'position': (room1['x'] + room1['width'] - 1, door_y),
+                    'room1_side': 'east',
+                    'room2_side': 'west'
+                }
+        elif room2['x'] + room2['width'] == room1['x']:
+            # room2 is west of room1
+            y_overlap_start = max(room1['y'], room2['y'])
+            y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+            if y_overlap_end > y_overlap_start:
+                door_y = (y_overlap_start + y_overlap_end) // 2
+                return {
+                    'direction': 'west',
+                    'position': (room1['x'], door_y),
+                    'room1_side': 'west',
+                    'room2_side': 'east'
+                }
+
+        # North-South adjacency
+        if room1['y'] + room1['height'] == room2['y']:
+            # room1 is north of room2
+            x_overlap_start = max(room1['x'], room2['x'])
+            x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+            if x_overlap_end > x_overlap_start:
+                door_x = (x_overlap_start + x_overlap_end) // 2
+                return {
+                    'direction': 'south',
+                    'position': (door_x, room1['y'] + room1['height'] - 1),
+                    'room1_side': 'south',
+                    'room2_side': 'north'
+                }
+        elif room2['y'] + room2['height'] == room1['y']:
+            # room2 is north of room1
+            x_overlap_start = max(room1['x'], room2['x'])
+            x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+            if x_overlap_end > x_overlap_start:
+                door_x = (x_overlap_start + x_overlap_end) // 2
+                return {
+                    'direction': 'north',
+                    'position': (door_x, room1['y']),
+                    'room1_side': 'north',
+                    'room2_side': 'south'
+                }
+
+        return None
+
+    def _create_doors(self):
+        """Create doors between adjacent rooms"""
+        # Check each pair of rooms to see if they're adjacent
+        for i in range(len(self.rooms)):
+            for j in range(i + 1, len(self.rooms)):
+                adjacency = self._find_adjacent_rooms(self.rooms[i], self.rooms[j])
+                if adjacency:
+                    # Rooms are adjacent, create a door
+                    grid_x, grid_y = adjacency['position']
+
+                    # Convert to Quake units
+                    # Door is centered in the cell
+                    door_x = (grid_x * self.cell_size) + (self.cell_size // 2)
+                    door_y = (grid_y * self.cell_size) + (self.cell_size // 2)
+                    door_z = self.floor_height + 64  # Door height from floor
+
+                    # Calculate angle based on direction
+                    # In Quake: 0 = East, 90 = North, 180 = West, 270 = South
+                    angle_map = {
+                        'east': 0,
+                        'north': 90,
+                        'west': 180,
+                        'south': 270
+                    }
+
+                    door_angle = angle_map.get(adjacency['direction'], 0)
+
+                    # Get door texture
+                    door_texture = random.choice(self.texture_pools['door'])
+
+                    self.doors.append({
+                        'origin': f"{door_x} {door_y} {door_z}",
+                        'angle': door_angle,
+                        'texture': door_texture,
+                        'grid_pos': (grid_x, grid_y),
+                        'direction': adjacency['direction']
+                    })
 
     def get_texture(self, texture_type, room_or_corridor=None):
         """Get a texture from the appropriate pool or from pre-assigned room textures
@@ -775,18 +838,6 @@ class QuakeDungeonGenerator:
                 for dx in range(room['width']):
                     theme_map[room['y'] + dy][room['x'] + dx] = theme
 
-        # Map corridor cells to their themes
-        for corridor in self.corridors:
-            theme = corridor.get('theme', None)
-            for dy in range(corridor['height']):
-                for dx in range(corridor['width']):
-                    cy = corridor['y'] + dy
-                    cx = corridor['x'] + dx
-                    if cy < self.grid_size and cx < self.grid_size:
-                        # Only override if not already set (rooms take precedence)
-                        if theme_map[cy][cx] is None:
-                            theme_map[cy][cx] = theme
-
         return theme_map
 
     def export_map(self, filename):
@@ -845,20 +896,6 @@ class QuakeDungeonGenerator:
                 self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
                                 self.ceiling_height + wall_thick, 'ceiling', room)
 
-            # Write floor and ceiling for corridors (using their pre-assigned textures)
-            for corridor in self.corridors:
-                x1 = corridor['x'] * self.cell_size
-                y1 = corridor['y'] * self.cell_size
-                x2 = x1 + (corridor['width'] * self.cell_size)
-                y2 = y1 + (corridor['height'] * self.cell_size)
-
-                # Floor for corridor (using corridor's specific textures)
-                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', corridor)
-
-                # Ceiling for corridor (using corridor's specific textures)
-                self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
-                                self.ceiling_height + wall_thick, 'ceiling', corridor)
-
             # Create wall brushes for empty cells
             for y in range(self.grid_size):
                 for x in range(self.grid_size):
@@ -914,7 +951,69 @@ class QuakeDungeonGenerator:
                         f.write(f'"origin" "{entity["origin"]}"\n')
                         f.write('}\n')
 
-    
+            # Add door entities between adjacent rooms
+            for door in self.doors:
+                f.write(f'// entity {entity_num}\n')
+                f.write('{\n')
+                f.write('"classname" "func_door"\n')
+                f.write(f'"angle" "{door["angle"]}"\n')
+                f.write(f'"origin" "{door["origin"]}"\n')
+                f.write('"speed" "100"\n')
+                f.write('"sounds" "2"\n')  # Medieval door sound
+                f.write('"wait" "3"\n')  # Wait 3 seconds before closing
+                f.write('"lip" "8"\n')  # How much of door stays visible when open
+
+                # Create door brush geometry
+                # Door dimensions: 64 wide x 8 thick x 128 tall
+                door_width = 64
+                door_thickness = 8
+                door_height = 128
+
+                # Parse origin to get position
+                origin_parts = door["origin"].split()
+                door_x = float(origin_parts[0])
+                door_y = float(origin_parts[1])
+                door_z_base = self.floor_height
+
+                # Adjust door position based on direction
+                if door["direction"] == 'north' or door["direction"] == 'south':
+                    # Door oriented along X axis (horizontal)
+                    x1 = door_x - door_width // 2
+                    x2 = door_x + door_width // 2
+                    y1 = door_y - door_thickness // 2
+                    y2 = door_y + door_thickness // 2
+                else:  # east or west
+                    # Door oriented along Y axis (vertical)
+                    x1 = door_x - door_thickness // 2
+                    x2 = door_x + door_thickness // 2
+                    y1 = door_y - door_width // 2
+                    y2 = door_y + door_width // 2
+
+                z1 = door_z_base
+                z2 = door_z_base + door_height
+
+                # Write door brush
+                door_texture = door["texture"]
+                f.write('{\n')
+                # All faces use door texture
+                # West face
+                f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) ( {x1} {y1} {z1+1} ) {door_texture} 0 0 0 1 1\n')
+                # East face
+                f.write(f'( {x2} {y1} {z1} ) ( {x2} {y1} {z1+1} ) ( {x2} {y1+1} {z1} ) {door_texture} 0 0 0 1 1\n')
+                # South face
+                f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1} {z1+1} ) ( {x1+1} {y1} {z1} ) {door_texture} 0 0 0 1 1\n')
+                # North face
+                f.write(f'( {x1} {y2} {z1} ) ( {x1+1} {y2} {z1} ) ( {x1} {y2} {z1+1} ) {door_texture} 0 0 0 1 1\n')
+                # Bottom face
+                f.write(f'( {x1} {y1} {z1} ) ( {x1+1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) {door_texture} 0 0 0 1 1\n')
+                # Top face
+                f.write(f'( {x1} {y1} {z2} ) ( {x1} {y1+1} {z2} ) ( {x1+1} {y1} {z2} ) {door_texture} 0 0 0 1 1\n')
+                f.write('}\n')
+
+                f.write('}\n')
+                entity_num += 1
+
+
     def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type, room_or_corridor=None):
         """Write a brush (rectangular box) to the map file with appropriate textures
 
@@ -982,7 +1081,7 @@ class QuakeDungeonGenerator:
             for x in range(self.grid_size):
                 print('#' if self.grid[y][x] else '.', end='')
             print()
-        print(f"\nGenerated {len(self.rooms)} rooms and {len(self.corridors)} corridor segments")
+        print(f"\nGenerated {len(self.rooms)} rooms and {len(self.doors)} doors connecting adjacent rooms")
 
         # Print theme assignments
         if self.texture_variety and self.rooms:
@@ -1022,7 +1121,7 @@ if __name__ == '__main__':
     generator.print_layout()
 
     # Export to .map file
-    output_file = '/mnt/e/SteamLibrary/steamapps/common/Quake/id1/maps/random_dungeon.map'  # Use local directory
+    output_file = 'random_dungeon.map'  # Use local directory
     generator.export_map(output_file)
     print(f"\nMap file created: {output_file}")
     print(f"WAD path in map: {generator.wad_path if generator.wad_path else '(not specified)'}")
