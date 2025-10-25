@@ -14,7 +14,7 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True, wad_path="wads/id.wad", spawn_entities=True, spawn_chance=0.7):
+    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=0.7):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
@@ -56,7 +56,6 @@ class QuakeDungeonGenerator:
             ],
             'wall': [
                 'metal1_1',     # Basic wall
-                'adoor09_2',     # Door texture
                 'light3_3',    # Light texture
             ]
         }
@@ -459,7 +458,7 @@ if __name__ == '__main__':
     generator.print_layout()
 
     # Export to .map file
-    output_file = 'random_dungeon.map'
+    output_file = '/mnt/e/SteamLibrary/steamapps/common/Quake/id1/maps/random_dungeon.map'
     generator.export_map(output_file)
     print(f"\nMap file created: {output_file}")
     print(f"WAD path in map: {generator.wad_path if generator.wad_path else '(not specified)'}")
