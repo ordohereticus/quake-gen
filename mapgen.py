@@ -553,6 +553,52 @@ class QuakeDungeonGenerator:
         self.last_theme = theme
         return theme
 
+    def _assign_room_textures(self, room):
+        """Assign specific textures to a room based on its theme
+
+        Args:
+            room: Room dictionary with theme assigned
+
+        Modifies room dictionary to add 'floor_texture', 'wall_texture', 'ceiling_texture'
+        """
+        theme_name = room.get('theme')
+        if not theme_name or theme_name not in self.texture_themes:
+            # Fallback to default pools
+            room['floor_texture'] = random.choice(self.texture_pools['floor'])
+            room['wall_texture'] = random.choice(self.texture_pools['wall'])
+            room['ceiling_texture'] = random.choice(self.texture_pools['ceiling'])
+            return
+
+        theme = self.texture_themes[theme_name]
+
+        # Pick one texture from each category for this room
+        room['floor_texture'] = random.choice(theme['floor'])
+        room['wall_texture'] = random.choice(theme['wall'])
+        room['ceiling_texture'] = random.choice(theme['ceiling'])
+
+    def _assign_corridor_textures(self, corridor):
+        """Assign specific textures to a corridor based on its theme
+
+        Args:
+            corridor: Corridor dictionary with theme assigned
+
+        Modifies corridor dictionary to add 'floor_texture', 'wall_texture', 'ceiling_texture'
+        """
+        theme_name = corridor.get('theme')
+        if not theme_name or theme_name not in self.texture_themes:
+            # Fallback to default pools
+            corridor['floor_texture'] = random.choice(self.texture_pools['floor'])
+            corridor['wall_texture'] = random.choice(self.texture_pools['wall'])
+            corridor['ceiling_texture'] = random.choice(self.texture_pools['ceiling'])
+            return
+
+        theme = self.texture_themes[theme_name]
+
+        # Pick one texture from each category for this corridor
+        corridor['floor_texture'] = random.choice(theme['floor'])
+        corridor['wall_texture'] = random.choice(theme['wall'])
+        corridor['ceiling_texture'] = random.choice(theme['ceiling'])
+
     def generate(self):
         """Generate the dungeon layout"""
         # Generate rooms
@@ -561,6 +607,8 @@ class QuakeDungeonGenerator:
             if room:
                 # Assign a theme to this room
                 room['theme'] = self._choose_next_theme()
+                # Assign specific textures from the theme
+                self._assign_room_textures(room)
                 self.rooms.append(room)
 
         # Connect rooms
@@ -612,7 +660,7 @@ class QuakeDungeonGenerator:
 
             # Blend themes for corridor
             corridor_theme = random.choice([room1.get('theme'), room2.get('theme')])
-            
+
             # --- CORRIDOR GENERATION ---
 
             # Determine the starting and ending points for the L-shape path
@@ -624,52 +672,60 @@ class QuakeDungeonGenerator:
                 # Go Horizontal (X-axis) first
                 x_start = min(current_x, x2)
                 x_end = max(current_x, x2)
-                
+
                 # Corridor segment 1: Horizontal
-                self.corridors.append({
+                corridor1 = {
                     'x': x_start,
                     'y': current_y - corridor_size // 2, # Center the corridor on the Y-axis
                     'width': x_end - x_start + 1,
                     'height': corridor_size,
                     'theme': corridor_theme
-                })
+                }
+                self._assign_corridor_textures(corridor1)
+                self.corridors.append(corridor1)
                 current_x = x2
-                
+
                 # Corridor segment 2: Vertical
                 y_start = min(current_y, y2)
                 y_end = max(current_y, y2)
-                self.corridors.append({
+                corridor2 = {
                     'x': current_x - corridor_size // 2, # Center the corridor on the X-axis
                     'y': y_start,
                     'width': corridor_size,
                     'height': y_end - y_start + 1,
                     'theme': corridor_theme
-                })
+                }
+                self._assign_corridor_textures(corridor2)
+                self.corridors.append(corridor2)
             else:
                 # Go Vertical (Y-axis) first
                 y_start = min(current_y, y2)
                 y_end = max(current_y, y2)
 
                 # Corridor segment 1: Vertical
-                self.corridors.append({
+                corridor1 = {
                     'x': current_x - corridor_size // 2, # Center the corridor on the X-axis
                     'y': y_start,
                     'width': corridor_size,
                     'height': y_end - y_start + 1,
                     'theme': corridor_theme
-                })
+                }
+                self._assign_corridor_textures(corridor1)
+                self.corridors.append(corridor1)
                 current_y = y2
 
                 # Corridor segment 2: Horizontal
                 x_start = min(current_x, x2)
                 x_end = max(current_x, x2)
-                self.corridors.append({
+                corridor2 = {
                     'x': x_start,
                     'y': current_y - corridor_size // 2, # Center the corridor on the Y-axis
                     'width': x_end - x_start + 1,
                     'height': corridor_size,
                     'theme': corridor_theme
-                })
+                }
+                self._assign_corridor_textures(corridor2)
+                self.corridors.append(corridor2)
 
             # Mark corridor space as occupied in the grid for visibility in print_layout
             for corridor in self.corridors[-2:]: # Only consider the last two segments added
@@ -683,23 +739,23 @@ class QuakeDungeonGenerator:
                     for dx in range(x_start, x_end):
                         self.grid[dy][dx] = True # Mark as occupied (corridor)
 
-    def get_texture(self, texture_type, theme=None):
-        """Get a texture from the appropriate pool or theme
+    def get_texture(self, texture_type, room_or_corridor=None):
+        """Get a texture from the appropriate pool or from pre-assigned room textures
 
         Args:
             texture_type: One of 'floor', 'ceiling', or 'wall'
-            theme: Optional theme name to use (for room-specific textures)
+            room_or_corridor: Optional room or corridor dict with pre-assigned textures
 
         Returns:
             Texture name string
         """
-        # If a theme is specified, use theme-specific textures
-        if theme and theme in self.texture_themes:
-            theme_data = self.texture_themes[theme]
-            if texture_type in theme_data:
-                return random.choice(theme_data[texture_type])
+        # If a room/corridor is specified and has pre-assigned textures, use those
+        if room_or_corridor:
+            texture_key = f'{texture_type}_texture'
+            if texture_key in room_or_corridor:
+                return room_or_corridor[texture_key]
 
-        # Fallback to old behavior if no theme or theme not found
+        # Fallback to old behavior if no room/corridor or no pre-assigned texture
         if texture_type not in self.texture_pools:
             return 'base'  # Fallback texture
 
@@ -848,36 +904,33 @@ class QuakeDungeonGenerator:
                             map_size + padding + wall_thick, map_size + padding,
                             self.ceiling_height + wall_thick, 'wall')
 
-            # Write floor and ceiling for each room with its theme
+            # Write floor and ceiling for each room with its pre-assigned textures
             for room in self.rooms:
-                room_theme = room.get('theme', None)
                 x1 = room['x'] * self.cell_size
                 y1 = room['y'] * self.cell_size
                 x2 = x1 + (room['width'] * self.cell_size)
                 y2 = y1 + (room['height'] * self.cell_size)
 
-                # Floor for this room
-                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', room_theme)
+                # Floor for this room (using room's specific textures)
+                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', room)
 
-                # Ceiling for this room
+                # Ceiling for this room (using room's specific textures)
                 self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
-                                self.ceiling_height + wall_thick, 'ceiling', room_theme)
+                                self.ceiling_height + wall_thick, 'ceiling', room)
 
-            # Write floor and ceiling for corridors (using their assigned themes)
+            # Write floor and ceiling for corridors (using their pre-assigned textures)
             for corridor in self.corridors:
-                corridor_theme = corridor.get('theme', None)
-
                 x1 = corridor['x'] * self.cell_size
                 y1 = corridor['y'] * self.cell_size
                 x2 = x1 + (corridor['width'] * self.cell_size)
                 y2 = y1 + (corridor['height'] * self.cell_size)
 
-                # Floor for corridor
-                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', corridor_theme)
+                # Floor for corridor (using corridor's specific textures)
+                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', corridor)
 
-                # Ceiling for corridor
+                # Ceiling for corridor (using corridor's specific textures)
                 self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
-                                self.ceiling_height + wall_thick, 'ceiling', corridor_theme)
+                                self.ceiling_height + wall_thick, 'ceiling', corridor)
 
             # Create wall brushes for empty cells
             for y in range(self.grid_size):
@@ -935,7 +988,7 @@ class QuakeDungeonGenerator:
                         f.write('}\n')
 
     
-    def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type, theme=None):
+    def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type, room_or_corridor=None):
         """Write a brush (rectangular box) to the map file with appropriate textures
 
         Args:
@@ -943,16 +996,16 @@ class QuakeDungeonGenerator:
             x1, y1, z1: Minimum coordinates of the brush
             x2, y2, z2: Maximum coordinates of the brush
             texture_type: Type of surface ('floor', 'ceiling', 'wall')
-            theme: Optional theme name to use for texture selection
+            room_or_corridor: Optional room or corridor dict with pre-assigned textures
         """
         f.write('{\n')
 
         # Get textures for each surface
         # For floors and ceilings, use the specified type
         # For walls of floor/ceiling brushes, use wall textures
-        floor_texture = self.get_texture('floor', theme)
-        ceiling_texture = self.get_texture('ceiling', theme)
-        wall_texture = self.get_texture('wall', theme)
+        floor_texture = self.get_texture('floor', room_or_corridor)
+        ceiling_texture = self.get_texture('ceiling', room_or_corridor)
+        wall_texture = self.get_texture('wall', room_or_corridor)
 
         # Determine which texture to use for each face based on brush type
         if texture_type == 'floor':
@@ -1011,6 +1064,15 @@ class QuakeDungeonGenerator:
                 theme_name = room.get('theme', 'unknown')
                 theme_display = self.texture_themes.get(theme_name, {}).get('name', theme_name)
                 print(f"  Room {i+1}: {theme_display}")
+
+            # Print first 3 rooms' specific texture assignments for verification
+            print("\nSample Room Textures (first 3 rooms):")
+            for i in range(min(3, len(self.rooms))):
+                room = self.rooms[i]
+                print(f"  Room {i+1}:")
+                print(f"    Floor: {room.get('floor_texture', 'N/A')}")
+                print(f"    Wall: {room.get('wall_texture', 'N/A')}")
+                print(f"    Ceiling: {room.get('ceiling_texture', 'N/A')}")
 
 
 if __name__ == '__main__':
