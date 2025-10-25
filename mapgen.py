@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """
 Quake 1 Random Dungeon Generator
-Generates playable .map files with random room layouts
+Generates playable .map files with random room layouts and texturing
+
+Features:
+- Random room placement and corridor generation
+- Configurable texture pools for floors, walls, and ceilings
+- Optional texture variety for visual diversity
+- Support for custom texture themes (medieval, tech, etc.)
 """
 
 import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8):
+    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
         num_rooms: Number of rooms to generate
+        texture_variety: If True, randomly select from texture pools for variety
         """
         self.grid_size = grid_size
         self.room_min = room_min
@@ -22,7 +29,36 @@ class QuakeDungeonGenerator:
         self.wall_thickness = 16
         self.floor_height = 0
         self.ceiling_height = 192
-        
+        self.texture_variety = texture_variety
+
+        # Texture pools for different surface types
+        self.texture_pools = {
+            'floor': [
+                'ground1_6',   # Stone floor
+                'ground1_5',   # Dark stone
+                'floor01_5',   # Metal floor
+                'rock4_2',     # Rocky ground
+                'ground1_7',   # Brick floor
+                'city1_4',     # Concrete
+            ],
+            'ceiling': [
+                'ceiling1_3',  # Tech ceiling
+                'ceiling5',    # Panel ceiling
+                'ceiling4',    # Dark ceiling
+                'sky1',        # Sky (for outdoor areas)
+                'ceiling1_1',  # Stone ceiling
+            ],
+            'wall': [
+                'city4_7',     # Metal panel
+                'city8_2',     # Industrial wall
+                'rock3_8',     # Rock wall
+                'wizmet1_2',   # Medieval wall
+                'city4_2',     # Tech wall
+                'wizwood1_4',  # Wood paneling
+                'bricka2_4',   # Brick wall
+            ]
+        }
+
         # Grid to track occupied spaces
         self.grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
         self.rooms = []
@@ -74,13 +110,13 @@ class QuakeDungeonGenerator:
         for i in range(len(self.rooms) - 1):
             room1 = self.rooms[i]
             room2 = self.rooms[i + 1]
-            
+
             # Get centers
             x1 = room1['x'] + room1['width'] // 2
             y1 = room1['y'] + room1['height'] // 2
             x2 = room2['x'] + room2['width'] // 2
             y2 = room2['y'] + room2['height'] // 2
-            
+
             # Create L-shaped corridor
             if random.random() < 0.5:
                 # Horizontal then vertical
@@ -90,6 +126,37 @@ class QuakeDungeonGenerator:
                 # Vertical then horizontal
                 self.corridors.append({'x': x1, 'y': min(y1, y2), 'width': 1, 'height': abs(y2 - y1) + 1})
                 self.corridors.append({'x': min(x1, x2), 'y': y2, 'width': abs(x2 - x1) + 1, 'height': 1})
+
+    def get_texture(self, texture_type):
+        """Get a texture from the appropriate pool
+
+        Args:
+            texture_type: One of 'floor', 'ceiling', or 'wall'
+
+        Returns:
+            Texture name string
+        """
+        if texture_type not in self.texture_pools:
+            return 'base'  # Fallback texture
+
+        pool = self.texture_pools[texture_type]
+        if self.texture_variety:
+            return random.choice(pool)
+        else:
+            # Use first texture for consistency
+            return pool[0]
+
+    def set_texture_pool(self, texture_type, textures):
+        """Set a custom texture pool for a surface type
+
+        Args:
+            texture_type: One of 'floor', 'ceiling', or 'wall'
+            textures: List of texture names to use
+        """
+        if texture_type in self.texture_pools and textures:
+            self.texture_pools[texture_type] = textures
+        else:
+            raise ValueError(f"Invalid texture_type '{texture_type}' or empty texture list")
     
     def export_map(self, filename):
         """Export the dungeon as a Quake .map file"""
@@ -182,39 +249,62 @@ class QuakeDungeonGenerator:
 
     
     def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type):
-        """Write a brush (rectangular box) to the map file"""
-        # Choose texture based on type
-        textures = {
-            'floor': 'ground1_6',
-            'ceiling': 'ceiling1_3',
-            'wall': 'city4_7'
-        }
-        texture = textures.get(texture_type, 'base')
-        
+        """Write a brush (rectangular box) to the map file with appropriate textures
+
+        Args:
+            f: File handle to write to
+            x1, y1, z1: Minimum coordinates of the brush
+            x2, y2, z2: Maximum coordinates of the brush
+            texture_type: Type of surface ('floor', 'ceiling', 'wall')
+        """
         f.write('{\n')
-        
+
+        # Get textures for each surface
+        # For floors and ceilings, use the specified type
+        # For walls of floor/ceiling brushes, use wall textures
+        floor_texture = self.get_texture('floor')
+        ceiling_texture = self.get_texture('ceiling')
+        wall_texture = self.get_texture('wall')
+
+        # Determine which texture to use for each face based on brush type
+        if texture_type == 'floor':
+            # Bottom face is floor texture, sides and top are wall texture
+            bottom_tex = floor_texture
+            side_tex = wall_texture
+            top_tex = wall_texture
+        elif texture_type == 'ceiling':
+            # Top face is ceiling texture, sides and bottom are wall texture
+            bottom_tex = wall_texture
+            side_tex = wall_texture
+            top_tex = ceiling_texture
+        else:  # 'wall' or any other type
+            # All faces use wall texture
+            bottom_tex = wall_texture
+            side_tex = wall_texture
+            top_tex = wall_texture
+
         # Using the exact pattern from Quake MAP specs
         # Each plane defined by 3 points, not necessarily on the brush vertices
         # Pattern: use small offsets (0,1) from the plane coordinate to define direction
-        
+
         # West face (x = x1)
-        f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) ( {x1} {y1} {z1+1} ) {texture} 0 0 0 1 1\n')
-        
+        f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) ( {x1} {y1} {z1+1} ) {side_tex} 0 0 0 1 1\n')
+
         # East face (x = x2)
-        f.write(f'( {x2} {y1} {z1} ) ( {x2} {y1} {z1+1} ) ( {x2} {y1+1} {z1} ) {texture} 0 0 0 1 1\n')
-        
+        f.write(f'( {x2} {y1} {z1} ) ( {x2} {y1} {z1+1} ) ( {x2} {y1+1} {z1} ) {side_tex} 0 0 0 1 1\n')
+
         # South face (y = y1)
-        f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1} {z1+1} ) ( {x1+1} {y1} {z1} ) {texture} 0 0 0 1 1\n')
-        
+        f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1} {z1+1} ) ( {x1+1} {y1} {z1} ) {side_tex} 0 0 0 1 1\n')
+
         # North face (y = y2)
-        f.write(f'( {x1} {y2} {z1} ) ( {x1+1} {y2} {z1} ) ( {x1} {y2} {z1+1} ) {texture} 0 0 0 1 1\n')
-        
+        f.write(f'( {x1} {y2} {z1} ) ( {x1+1} {y2} {z1} ) ( {x1} {y2} {z1+1} ) {side_tex} 0 0 0 1 1\n')
+
         # Bottom face (z = z1)
-        f.write(f'( {x1} {y1} {z1} ) ( {x1+1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) {texture} 0 0 0 1 1\n')
-        
+        f.write(f'( {x1} {y1} {z1} ) ( {x1+1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) {bottom_tex} 0 0 0 1 1\n')
+
         # Top face (z = z2)
-        f.write(f'( {x1} {y1} {z2} ) ( {x1} {y1+1} {z2} ) ( {x1+1} {y1} {z2} ) {texture} 0 0 0 1 1\n')
-        
+        f.write(f'( {x1} {y1} {z2} ) ( {x1} {y1+1} {z2} ) ( {x1+1} {y1} {z2} ) {top_tex} 0 0 0 1 1\n')
+
         f.write('}\n')
     
     def print_layout(self):
@@ -234,16 +324,31 @@ if __name__ == '__main__':
         grid_size=12,
         room_min=2,
         room_max=4,
-        num_rooms=10
+        num_rooms=10,
+        texture_variety=True  # Enable random texture selection for variety
     )
-    
+
+    # Optional: Customize texture pools for specific themes
+    # Uncomment to use a medieval theme:
+    # generator.set_texture_pool('floor', ['ground1_6', 'ground1_7', 'rock4_2'])
+    # generator.set_texture_pool('wall', ['wizmet1_2', 'wizwood1_4', 'bricka2_4'])
+    # generator.set_texture_pool('ceiling', ['ceiling1_1', 'wizmet1_2'])
+
+    # Optional: Use consistent texturing (disable variety)
+    # generator.texture_variety = False
+
     generator.generate()
     generator.print_layout()
-    
+
     # Export to .map file
     output_file = '/mnt/e/SteamLibrary/steamapps/common/Quake/id1/maps/random_dungeon.map'
     generator.export_map(output_file)
     print(f"\nMap file created: {output_file}")
+    print("\nTexture Settings:")
+    print(f"  - Variety enabled: {generator.texture_variety}")
+    print(f"  - Floor textures: {len(generator.texture_pools['floor'])} options")
+    print(f"  - Wall textures: {len(generator.texture_pools['wall'])} options")
+    print(f"  - Ceiling textures: {len(generator.texture_pools['ceiling'])} options")
     print("\nTo compile this map:")
     print("1. Copy the .map file to your Quake tools directory")
     print("2. Run: qbsp random_dungeon.map")
