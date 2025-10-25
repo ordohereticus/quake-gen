@@ -14,12 +14,17 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True):
+    def __init__(self, grid_size=10, room_min=2, room_max=5, num_rooms=8, texture_variety=True, wad_path=""):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
         num_rooms: Number of rooms to generate
         texture_variety: If True, randomly select from texture pools for variety
+        wad_path: Path to WAD file(s). Examples:
+                  "" - Let compiler search (may not work)
+                  "gfx.wad" - Single WAD file in Quake directory
+                  "/full/path/to/gfx.wad" - Absolute path
+                  "gfx.wad;gfx2.wad" - Multiple WAD files (semicolon separated)
         """
         self.grid_size = grid_size
         self.room_min = room_min
@@ -30,35 +35,29 @@ class QuakeDungeonGenerator:
         self.floor_height = 0
         self.ceiling_height = 192
         self.texture_variety = texture_variety
+        self.wad_path = wad_path
 
         # Texture pools for different surface types
         # NOTE: Texture names are CASE-SENSITIVE and must exist in your WAD files!
-        # These are common texture names from standard Quake WAD files
-        # If textures appear as "base" or missing, customize using set_texture_pool()
+        # IMPORTANT: You MUST customize these for your specific Quake installation!
+        # See TEXTURES.md for how to find valid texture names
+        #
+        # Common textures from id Software's original maps (Episode 1):
+        # IMPORTANT: Replace these with textures that exist in YOUR WAD files!
         self.texture_pools = {
             'floor': [
-                'METAL4_8',    # Metal grating
-                'ROCK5_2',     # Rock floor
-                'METAL5_2',    # Metal floor
-                'ROCK3_7',     # Stone floor
-                'METAL4_4',    # Metal panel floor
-                'ROCK1_2',     # Dark rock
+                'FLOOR01_5',   # Common floor texture
+                'GROUND1_6',   # Stone ground
+                'MET5_1',      # Metal floor variant
             ],
             'ceiling': [
-                'METAL5_8',    # Metal ceiling
-                'ROCK5_2',     # Stone ceiling
-                'METAL4_8',    # Tech ceiling
-                'ROCK3_7',     # Rock ceiling
-                'METAL4_4',    # Panel ceiling
+                'CEIL1_1',     # Tech ceiling
+                'FLOOR01_5',   # Can reuse floor textures
             ],
             'wall': [
-                'METAL4_8',    # Metal wall
+                'WALL1_5',     # Basic wall
+                'CITY1_4',     # City texture
                 'ROCK5_2',     # Rock wall
-                'METAL5_2',    # Metal panels
-                'ROCK3_7',     # Stone wall
-                'METAL4_4',    # Tech wall
-                'ROCK1_2',     # Dark rock wall
-                'METAL5_8',    # Industrial wall
             ]
         }
 
@@ -170,9 +169,9 @@ class QuakeDungeonGenerator:
             f.write('// entity 0\n')
             f.write('{\n')
             f.write('"classname" "worldspawn"\n')
-            # Specify WAD file - adjust path as needed for your Quake installation
-            # Common options: leave blank "", use "gfx.wad", or specify full path
-            f.write('"wad" ""\n')  # Empty = compiler will search standard WAD locations
+            # Write WAD file reference if specified
+            if self.wad_path:
+                f.write(f'"wad" "{self.wad_path}"\n')
             
             # Calculate map bounds
             map_size = self.grid_size * self.cell_size
@@ -325,22 +324,27 @@ class QuakeDungeonGenerator:
 if __name__ == '__main__':
     # Generate a dungeon
     print("Generating random Quake 1 dungeon...")
+    print("\n" + "="*60)
+    print("IMPORTANT: Default textures may not exist in your WAD files!")
+    print("If you get 'texture not found' warnings, see TEXTURES.md")
+    print("="*60 + "\n")
+
     generator = QuakeDungeonGenerator(
         grid_size=12,
         room_min=2,
         room_max=4,
         num_rooms=10,
-        texture_variety=True  # Enable random texture selection for variety
+        texture_variety=True,  # Enable random texture selection for variety
+        wad_path="gfx.wad"  # Specify your WAD file - adjust as needed!
     )
 
-    # Optional: Customize texture pools for specific themes
-    # Uncomment to use a medieval theme:
-    # generator.set_texture_pool('floor', ['ground1_6', 'ground1_7', 'rock4_2'])
-    # generator.set_texture_pool('wall', ['wizmet1_2', 'wizwood1_4', 'bricka2_4'])
-    # generator.set_texture_pool('ceiling', ['ceiling1_1', 'wizmet1_2'])
-
-    # Optional: Use consistent texturing (disable variety)
-    # generator.texture_variety = False
+    # IMPORTANT: Customize these textures for YOUR Quake installation!
+    # To find valid textures, see TEXTURES.md or run texture_test.py
+    #
+    # Example - if you found these textures work in your setup:
+    # generator.set_texture_pool('floor', ['FLOOR01_5', 'GROUND1_6'])
+    # generator.set_texture_pool('wall', ['WALL1_5', 'CITY1_4'])
+    # generator.set_texture_pool('ceiling', ['CEIL1_1'])
 
     generator.generate()
     generator.print_layout()
@@ -349,15 +353,17 @@ if __name__ == '__main__':
     output_file = '/mnt/e/SteamLibrary/steamapps/common/Quake/id1/maps/random_dungeon.map'
     generator.export_map(output_file)
     print(f"\nMap file created: {output_file}")
+    print(f"WAD path in map: {generator.wad_path if generator.wad_path else '(not specified)'}")
     print("\nTexture Settings:")
     print(f"  - Variety enabled: {generator.texture_variety}")
     print(f"  - Floor textures: {len(generator.texture_pools['floor'])} options")
     print(f"  - Wall textures: {len(generator.texture_pools['wall'])} options")
     print(f"  - Ceiling textures: {len(generator.texture_pools['ceiling'])} options")
     print("\nTo compile this map:")
-    print("1. Copy the .map file to your Quake tools directory")
-    print("2. Run: qbsp random_dungeon.map")
-    print("3. Run: light random_dungeon.bsp")
-    print("4. Run: vis random_dungeon.bsp")
-    print("5. Copy the final .bsp to your Quake/id1/maps/ folder")
-    print("6. Launch Quake and run: map random_dungeon")
+    print("1. Run: qbsp random_dungeon.map")
+    print("   (or with explicit WAD path: qbsp -wadpath /path/to/quake/id1 random_dungeon.map)")
+    print("2. Run: light random_dungeon.bsp")
+    print("3. Run: vis random_dungeon.bsp")
+    print("4. Copy the final .bsp to your Quake/id1/maps/ folder")
+    print("5. Launch Quake and run: map random_dungeon")
+    print("\nIf textures appear as 'base', see TEXTURES.md for troubleshooting!")
