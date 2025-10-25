@@ -772,7 +772,7 @@ if __name__ == '__main__':
         room_max=4,
         num_rooms=10,
         texture_variety=True,  # Enable random texture selection for variety
-        wad_path="wads/idbase_mega.wad;"  # WAD files for texture loading
+        wad_path="id.wad;"  # WAD files for texture loading
     )
 
     # IMPORTANT: Customize these textures for YOUR Quake installation!
@@ -810,4 +810,3 @@ if __name__ == '__main__':
     print("3. Run: vis random_dungeon.bsp")
     print("4. Copy the final .bsp to your Quake/id1/maps/ folder")
     print("5. Launch Quake and run: map random_dungeon")
-    print("\nIf textures appear as 'base', see TEXTURES.md for troubleshooting!")
