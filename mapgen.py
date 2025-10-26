@@ -1155,22 +1155,24 @@ class QuakeDungeonGenerator:
                 door_x, door_y = door['position']
                 door_z_base = self.floor_height
 
-                # Position door based on which wall it's on
-                # Door should be flush with the wall opening
+                # Position door brush to be PARALLEL to the wall (filling the opening)
+                # The door should be flush with the wall, not sticking out
                 if door["direction"] == 'east' or door["direction"] == 'west':
                     # Door is on a vertical wall (east or west wall of a room)
-                    # Door is thin in Y direction, wide in X direction
-                    x1 = door_x - door_width / 2
-                    x2 = door_x + door_width / 2
-                    y1 = door_y - door_thickness / 2
-                    y2 = door_y + door_thickness / 2
-                else:  # north or south
-                    # Door is on a horizontal wall (north or south wall of a room)
-                    # Door is thin in X direction, wide in Y direction
+                    # Door should be thin in X direction (perpendicular to wall)
+                    # and wide in Y direction (parallel to wall, filling the opening)
                     x1 = door_x - door_thickness / 2
                     x2 = door_x + door_thickness / 2
                     y1 = door_y - door_width / 2
                     y2 = door_y + door_width / 2
+                else:  # north or south
+                    # Door is on a horizontal wall (north or south wall of a room)
+                    # Door should be wide in X direction (parallel to wall, filling the opening)
+                    # and thin in Y direction (perpendicular to wall)
+                    x1 = door_x - door_width / 2
+                    x2 = door_x + door_width / 2
+                    y1 = door_y - door_thickness / 2
+                    y2 = door_y + door_thickness / 2
 
                 z1 = door_z_base
                 z2 = door_z_base + door_height
