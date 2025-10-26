@@ -830,15 +830,30 @@ class QuakeDungeonGenerator:
             room1, room2: Room dictionaries
             room1_idx, room2_idx: Room indices
         """
-        # Calculate positions for teleporter pads in each room
-        # Place them slightly offset from center to avoid spawning on them
-        room1_x = (room1['x'] * self.cell_size) + (room1['width'] * self.cell_size) * 0.7
-        room1_y = (room1['y'] * self.cell_size) + (room1['height'] * self.cell_size) * 0.7
-        room1_z = self.floor_height
+        # Calculate positions for teleporter pads and destinations in each room
+        # IMPORTANT: Destinations must be placed OUTSIDE trigger volumes to prevent loops
 
-        room2_x = (room2['x'] * self.cell_size) + (room2['width'] * self.cell_size) * 0.3
-        room2_y = (room2['y'] * self.cell_size) + (room2['height'] * self.cell_size) * 0.3
-        room2_z = self.floor_height
+        # Room 1: Place trigger pad in one corner, destination in opposite corner
+        # Trigger pad at 70% position
+        room1_trigger_x = (room1['x'] * self.cell_size) + (room1['width'] * self.cell_size) * 0.7
+        room1_trigger_y = (room1['y'] * self.cell_size) + (room1['height'] * self.cell_size) * 0.7
+        room1_trigger_z = self.floor_height
+
+        # Destination at 30% position (far from the trigger)
+        room1_dest_x = (room1['x'] * self.cell_size) + (room1['width'] * self.cell_size) * 0.3
+        room1_dest_y = (room1['y'] * self.cell_size) + (room1['height'] * self.cell_size) * 0.3
+        room1_dest_z = self.floor_height + 24  # Spawn slightly above floor
+
+        # Room 2: Place trigger pad in one corner, destination in opposite corner
+        # Trigger pad at 30% position
+        room2_trigger_x = (room2['x'] * self.cell_size) + (room2['width'] * self.cell_size) * 0.3
+        room2_trigger_y = (room2['y'] * self.cell_size) + (room2['height'] * self.cell_size) * 0.3
+        room2_trigger_z = self.floor_height
+
+        # Destination at 70% position (far from the trigger)
+        room2_dest_x = (room2['x'] * self.cell_size) + (room2['width'] * self.cell_size) * 0.7
+        room2_dest_y = (room2['y'] * self.cell_size) + (room2['height'] * self.cell_size) * 0.7
+        room2_dest_z = self.floor_height + 24  # Spawn slightly above floor
 
         # Generate unique target names for the teleporter destinations
         teleporter_id = len(self.teleporters)
@@ -846,30 +861,32 @@ class QuakeDungeonGenerator:
         target2 = f"tele_dest_{teleporter_id}_b"
 
         # Create teleporter from room1 to room2
+        # Trigger in room1, destination in room2 (far from room2's trigger)
         self.teleporters.append({
             'type': 'trigger',
-            'origin': (room1_x, room1_y, room1_z),
+            'origin': (room1_trigger_x, room1_trigger_y, room1_trigger_z),
             'target': target2,  # Points to destination in room2
             'room_idx': room1_idx
         })
         self.teleporters.append({
             'type': 'destination',
-            'origin': (room2_x, room2_y, room2_z + 24),  # Slightly above floor
+            'origin': (room2_dest_x, room2_dest_y, room2_dest_z),
             'targetname': target2,
             'angle': 180,
             'room_idx': room2_idx
         })
 
         # Create return teleporter from room2 to room1
+        # Trigger in room2, destination in room1 (far from room1's trigger)
         self.teleporters.append({
             'type': 'trigger',
-            'origin': (room2_x, room2_y, room2_z),
+            'origin': (room2_trigger_x, room2_trigger_y, room2_trigger_z),
             'target': target1,  # Points to destination in room1
             'room_idx': room2_idx
         })
         self.teleporters.append({
             'type': 'destination',
-            'origin': (room1_x, room1_y, room1_z + 24),  # Slightly above floor
+            'origin': (room1_dest_x, room1_dest_y, room1_dest_z),
             'targetname': target1,
             'angle': 180,
             'room_idx': room1_idx
