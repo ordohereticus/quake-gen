@@ -43,6 +43,7 @@ class QuakeDungeonGenerator:
         self.wad_path = wad_path
         self.spawn_entities = spawn_entities
         self.spawn_chance = spawn_chance
+        self.end_goal = None  
 
         # Texture pools for different surface types
         # NOTE: Texture names are CASE-SENSITIVE and must exist in your WAD files!
@@ -219,7 +220,7 @@ class QuakeDungeonGenerator:
 
             # DOOR TEXTURES
             'door': [
-                'door01_2'
+                'door03_3'
             ],
 
             # LIGHT TEXTURES - Illuminated surfaces
@@ -600,6 +601,12 @@ class QuakeDungeonGenerator:
 
         # Check connectivity and add teleporters if needed
         self._ensure_connectivity()
+
+        if len(self.rooms) > 1:
+            # Pick a random room that isn't the spawn room
+            end_goal_room_idx = random.randint(1, len(self.rooms) - 1)
+            self.end_goal = end_goal_room_idx
+            print(f"\nEnd goal placed in room {end_goal_room_idx + 1}")
         
     def _place_random_room(self, max_attempts=50):
         """Try to place a random room on the grid"""
@@ -1273,6 +1280,24 @@ class QuakeDungeonGenerator:
                         x2, y2, z2 = x + pad_size / 2, y + pad_size / 2, z + pad_thickness
                         self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, teleporter_texture)
             
+            # Generate visual end goal pad (if one was set)
+            if self.end_goal is not None:
+                end_room = self.rooms[self.end_goal]
+                room_center_x = (end_room['x'] + end_room['width'] / 2) * self.cell_size
+                room_center_y = (end_room['y'] + end_room['height'] / 2) * self.cell_size
+                
+                # Create a visible pad on the floor (like teleporter pads)
+                end_goal_texture = 'exit01'  # Use an exit texture to make it obvious
+                pad_size = 96  # Slightly larger than teleporter pads
+                pad_thickness = 8
+                x1 = room_center_x - pad_size / 2
+                y1 = room_center_y - pad_size / 2
+                z1 = self.floor_height
+                x2 = room_center_x + pad_size / 2
+                y2 = room_center_y + pad_size / 2
+                z2 = self.floor_height + pad_thickness
+                self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, end_goal_texture)
+            
             f.write('}\n')
 
             # --- ENTITY GENERATION (No changes needed here) ---
@@ -1349,6 +1374,31 @@ class QuakeDungeonGenerator:
                 z1 = self.floor_height
                 z2 = z1 + self.door_height
                 self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, door["texture"])
+                f.write('}\n')
+                entity_num += 1
+            
+            # End Goal Trigger Entity (if one was set)
+            if self.end_goal is not None:
+                end_room = self.rooms[self.end_goal]
+                room_center_x = (end_room['x'] + end_room['width'] / 2) * self.cell_size
+                room_center_y = (end_room['y'] + end_room['height'] / 2) * self.cell_size
+                trigger_z = self.floor_height
+                
+                # Create the trigger brush (same dimensions as visual pad)
+                pad_size = 96
+                trigger_height = 64
+                x1 = room_center_x - pad_size / 2
+                x2 = room_center_x + pad_size / 2
+                y1 = room_center_y - pad_size / 2
+                y2 = room_center_y + pad_size / 2
+                z1 = trigger_z
+                z2 = trigger_z + trigger_height
+                
+                f.write(f'// entity {entity_num}\n{{\n')
+                f.write('"classname" "trigger_changelevel"\n')
+                f.write('"map" "end"\n')
+                # Write the trigger brush
+                self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, 'trigger')
                 f.write('}\n')
                 entity_num += 1
 
