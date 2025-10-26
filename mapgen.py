@@ -436,6 +436,7 @@ class QuakeDungeonGenerator:
         self.grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
         self.rooms = []
         self.doors = []
+        self.teleporters = []
 
         # Define coherent texture themes
         # Each theme has floor, wall, and ceiling textures that work well together
@@ -590,6 +591,9 @@ class QuakeDungeonGenerator:
 
         # Create doors between adjacent rooms
         self._create_doors()
+
+        # Check connectivity and add teleporters if needed
+        self._ensure_connectivity()
         
     def _place_random_room(self, max_attempts=50):
         """Try to place a random room on the grid"""
@@ -746,8 +750,130 @@ class QuakeDungeonGenerator:
                         'angle': door_angle,
                         'texture': door_texture,
                         'position': (door_x, door_y),
-                        'direction': adjacency['direction']
+                        'direction': adjacency['direction'],
+                        'room1_idx': i,
+                        'room2_idx': j
                     })
+
+    def _ensure_connectivity(self):
+        """Check if all rooms are connected, and add teleporters if not
+
+        Uses BFS to find connected components. If there are multiple components,
+        adds teleporter pairs to connect them.
+        """
+        if len(self.rooms) <= 1:
+            return  # No connectivity issues with 0 or 1 rooms
+
+        # Build adjacency list from doors
+        adjacency = {i: set() for i in range(len(self.rooms))}
+        for door in self.doors:
+            room1_idx = door['room1_idx']
+            room2_idx = door['room2_idx']
+            adjacency[room1_idx].add(room2_idx)
+            adjacency[room2_idx].add(room1_idx)
+
+        # Find connected components using BFS
+        visited = set()
+        components = []
+
+        def bfs(start):
+            """BFS to find all rooms in the connected component"""
+            component = []
+            queue = [start]
+            visited.add(start)
+
+            while queue:
+                room_idx = queue.pop(0)
+                component.append(room_idx)
+
+                for neighbor in adjacency[room_idx]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+
+            return component
+
+        # Find all connected components
+        for i in range(len(self.rooms)):
+            if i not in visited:
+                component = bfs(i)
+                components.append(component)
+
+        # If all rooms are connected, we're done
+        if len(components) == 1:
+            return
+
+        # Need to connect disconnected components with teleporters
+        print(f"\nFound {len(components)} disconnected room groups. Adding teleporters...")
+
+        # Connect each component to the first one (which contains the player spawn)
+        target_component = 0  # The first component has the player spawn
+
+        for i in range(1, len(components)):
+            # Pick random rooms from each component
+            source_room_idx = random.choice(components[i])
+            target_room_idx = random.choice(components[target_component])
+
+            source_room = self.rooms[source_room_idx]
+            target_room = self.rooms[target_room_idx]
+
+            # Create teleporter pair
+            self._add_teleporter_pair(source_room, target_room,
+                                     source_room_idx, target_room_idx)
+
+            print(f"  Connected room group {i+1} to main group with teleporter")
+
+    def _add_teleporter_pair(self, room1, room2, room1_idx, room2_idx):
+        """Add a pair of teleporters connecting two rooms
+
+        Args:
+            room1, room2: Room dictionaries
+            room1_idx, room2_idx: Room indices
+        """
+        # Calculate positions for teleporter pads in each room
+        # Place them slightly offset from center to avoid spawning on them
+        room1_x = (room1['x'] * self.cell_size) + (room1['width'] * self.cell_size) * 0.7
+        room1_y = (room1['y'] * self.cell_size) + (room1['height'] * self.cell_size) * 0.7
+        room1_z = self.floor_height
+
+        room2_x = (room2['x'] * self.cell_size) + (room2['width'] * self.cell_size) * 0.3
+        room2_y = (room2['y'] * self.cell_size) + (room2['height'] * self.cell_size) * 0.3
+        room2_z = self.floor_height
+
+        # Generate unique target names for the teleporter destinations
+        teleporter_id = len(self.teleporters)
+        target1 = f"tele_dest_{teleporter_id}_a"
+        target2 = f"tele_dest_{teleporter_id}_b"
+
+        # Create teleporter from room1 to room2
+        self.teleporters.append({
+            'type': 'trigger',
+            'origin': (room1_x, room1_y, room1_z),
+            'target': target2,  # Points to destination in room2
+            'room_idx': room1_idx
+        })
+        self.teleporters.append({
+            'type': 'destination',
+            'origin': (room2_x, room2_y, room2_z + 24),  # Slightly above floor
+            'targetname': target2,
+            'angle': 180,
+            'room_idx': room2_idx
+        })
+
+        # Create return teleporter from room2 to room1
+        self.teleporters.append({
+            'type': 'trigger',
+            'origin': (room2_x, room2_y, room2_z),
+            'target': target1,  # Points to destination in room1
+            'room_idx': room2_idx
+        })
+        self.teleporters.append({
+            'type': 'destination',
+            'origin': (room1_x, room1_y, room1_z + 24),  # Slightly above floor
+            'targetname': target1,
+            'angle': 180,
+            'room_idx': room1_idx
+        })
 
     def get_texture(self, texture_type, room_or_corridor=None):
         """Get a texture from the appropriate pool or from pre-assigned room textures
@@ -1147,6 +1273,58 @@ class QuakeDungeonGenerator:
                         f.write(f'"origin" "{entity["origin"]}"\n')
                         f.write('}\n')
 
+            # Add teleporter entities
+            for teleporter in self.teleporters:
+                if teleporter['type'] == 'trigger':
+                    # Create trigger_teleport brush entity
+                    f.write(f'// entity {entity_num}\n')
+                    f.write('{\n')
+                    f.write('"classname" "trigger_teleport"\n')
+                    f.write(f'"target" "{teleporter["target"]}"\n')
+
+                    # Create trigger brush (64x64x64 area)
+                    x, y, z = teleporter['origin']
+                    pad_size = 64
+                    pad_height = 64
+
+                    x1 = x - pad_size / 2
+                    x2 = x + pad_size / 2
+                    y1 = y - pad_size / 2
+                    y2 = y + pad_size / 2
+                    z1 = z
+                    z2 = z + pad_height
+
+                    # Write trigger brush with 'trigger' texture
+                    f.write('{\n')
+                    # West face
+                    f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) ( {x1} {y1} {z1+1} ) trigger 0 0 0 1 1\n')
+                    # East face
+                    f.write(f'( {x2} {y1} {z1} ) ( {x2} {y1} {z1+1} ) ( {x2} {y1+1} {z1} ) trigger 0 0 0 1 1\n')
+                    # South face
+                    f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1} {z1+1} ) ( {x1+1} {y1} {z1} ) trigger 0 0 0 1 1\n')
+                    # North face
+                    f.write(f'( {x1} {y2} {z1} ) ( {x1+1} {y2} {z1} ) ( {x1} {y2} {z1+1} ) trigger 0 0 0 1 1\n')
+                    # Bottom face
+                    f.write(f'( {x1} {y1} {z1} ) ( {x1+1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) trigger 0 0 0 1 1\n')
+                    # Top face
+                    f.write(f'( {x1} {y1} {z2} ) ( {x1} {y1+1} {z2} ) ( {x1+1} {y1} {z2} ) trigger 0 0 0 1 1\n')
+                    f.write('}\n')
+
+                    f.write('}\n')
+                    entity_num += 1
+
+                elif teleporter['type'] == 'destination':
+                    # Create info_teleport_destination point entity
+                    f.write(f'// entity {entity_num}\n')
+                    f.write('{\n')
+                    f.write('"classname" "info_teleport_destination"\n')
+                    f.write(f'"targetname" "{teleporter["targetname"]}"\n')
+                    x, y, z = teleporter['origin']
+                    f.write(f'"origin" "{x} {y} {z}"\n')
+                    f.write(f'"angle" "{teleporter["angle"]}"\n')
+                    f.write('}\n')
+                    entity_num += 1
+
             # Add door entities between adjacent rooms
             for door in self.doors:
                 f.write(f'// entity {entity_num}\n')
@@ -1279,6 +1457,11 @@ class QuakeDungeonGenerator:
                 print('#' if self.grid[y][x] else '.', end='')
             print()
         print(f"\nGenerated {len(self.rooms)} rooms and {len(self.doors)} doors connecting adjacent rooms")
+
+        # Show teleporter count
+        num_teleporter_pairs = len(self.teleporters) // 4  # 4 entities per pair (2 triggers + 2 destinations)
+        if num_teleporter_pairs > 0:
+            print(f"Added {num_teleporter_pairs} teleporter pair(s) to connect disconnected room groups")
 
         # Print theme assignments
         if self.texture_variety and self.rooms:
