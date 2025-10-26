@@ -515,6 +515,159 @@ class QuakeDungeonGenerator:
 
         # Track the last theme used for smooth transitions
         self.last_theme = None
+
+        # Room type definitions for varied gameplay
+        # Phase 1: Lighting, entity density, and size variations
+        self.room_types = {
+            'plain': {
+                'name': 'Plain Room',
+                'weight': 30,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 600,
+                'multi_lights': False,
+                'entity_mode': 'normal',
+            },
+            'dark': {
+                'name': 'Dark Room',
+                'weight': 10,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 200,
+                'multi_lights': False,
+                'entity_mode': 'normal',
+            },
+            'bright': {
+                'name': 'Bright Room',
+                'weight': 8,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 900,
+                'multi_lights': False,
+                'entity_mode': 'normal',
+            },
+            'colored_red': {
+                'name': 'Red-Lit Room',
+                'weight': 3,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 600,
+                'light_color': '255 50 50',
+                'multi_lights': False,
+                'entity_mode': 'normal',
+            },
+            'colored_blue': {
+                'name': 'Blue-Lit Room',
+                'weight': 3,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 600,
+                'light_color': '50 100 255',
+                'multi_lights': False,
+                'entity_mode': 'normal',
+            },
+            'colored_green': {
+                'name': 'Green-Lit Room',
+                'weight': 3,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 600,
+                'light_color': '50 255 100',
+                'multi_lights': False,
+                'entity_mode': 'normal',
+            },
+            'multi_light': {
+                'name': 'Well-Lit Room',
+                'weight': 8,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 500,
+                'multi_lights': True,
+                'entity_mode': 'normal',
+            },
+            'ambush': {
+                'name': 'Monster Ambush',
+                'weight': 10,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 400,
+                'multi_lights': False,
+                'entity_mode': 'ambush',
+                'entity_multiplier': 2.5,
+            },
+            'safe_room': {
+                'name': 'Supply Cache',
+                'weight': 5,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 700,
+                'multi_lights': True,
+                'entity_mode': 'supplies_only',
+            },
+            'empty': {
+                'name': 'Empty Room',
+                'weight': 5,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 300,
+                'multi_lights': False,
+                'entity_mode': 'none',
+            },
+            'horde': {
+                'name': 'Monster Horde',
+                'weight': 5,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 500,
+                'multi_lights': True,
+                'entity_mode': 'horde',
+            },
+            'arena': {
+                'name': 'Large Arena',
+                'weight': 3,
+                'size_min': int(room_max * 1.2),
+                'size_max': int(room_max * 2.0),
+                'lighting': 700,
+                'multi_lights': True,
+                'entity_mode': 'boss',
+            },
+            'closet': {
+                'name': 'Small Closet',
+                'weight': 8,
+                'size_min': max(1, int(room_min * 0.5)),
+                'size_max': int(room_min * 1.2),
+                'lighting': 400,
+                'multi_lights': False,
+                'entity_mode': 'minimal',
+            },
+            'hallway': {
+                'name': 'Long Hallway',
+                'weight': 12,
+                'size_min': room_min,
+                'size_max': room_max,
+                'lighting': 500,
+                'multi_lights': True,
+                'entity_mode': 'normal',
+                'shape': 'hallway',  # Special shape handling
+            },
+            'outdoor': {
+                'name': 'Outdoor Courtyard',
+                'weight': 4,
+                'size_min': int(room_max * 0.8),
+                'size_max': int(room_max * 1.5),
+                'lighting': 1000,
+                'multi_lights': False,
+                'entity_mode': 'normal',
+                'ceiling_texture': 'sky1',  # Sky ceiling
+            },
+        }
+
+        # Calculate total weight for room type selection
+        self.room_type_weights = []
+        self.room_type_names = []
+        for type_name, type_data in self.room_types.items():
+            self.room_type_names.append(type_name)
+            self.room_type_weights.append(type_data['weight'])
         
     def _choose_next_theme(self):
         """Choose a theme for the next room with smooth transitions
@@ -543,6 +696,43 @@ class QuakeDungeonGenerator:
         theme = random.choice(self.theme_names)
         self.last_theme = theme
         return theme
+
+    def _select_room_type(self):
+        """Select a room type using weighted random selection
+
+        Returns:
+            Room type name (string)
+        """
+        return random.choices(self.room_type_names, weights=self.room_type_weights, k=1)[0]
+
+    def _get_room_dimensions(self, room_type_name):
+        """Get room dimensions based on room type
+
+        Args:
+            room_type_name: Name of the room type
+
+        Returns:
+            Tuple of (width, height) in grid cells
+        """
+        room_type = self.room_types.get(room_type_name, self.room_types['plain'])
+
+        # Special handling for hallway shape
+        if room_type.get('shape') == 'hallway':
+            # Hallways are long and narrow
+            if random.random() < 0.5:
+                # Horizontal hallway
+                width = random.randint(room_type['size_min'] * 2, room_type['size_max'] * 2)
+                height = random.randint(1, 2)
+            else:
+                # Vertical hallway
+                width = random.randint(1, 2)
+                height = random.randint(room_type['size_min'] * 2, room_type['size_max'] * 2)
+        else:
+            # Standard room dimensions
+            width = random.randint(room_type['size_min'], room_type['size_max'])
+            height = random.randint(room_type['size_min'], room_type['size_max'])
+
+        return width, height
 
     def _write_simple_brush(self, f, x1, y1, z1, x2, y2, z2, texture):
         """Writes a simple brush where all faces have the same texture."""
@@ -575,14 +765,19 @@ class QuakeDungeonGenerator:
             room['floor_texture'] = random.choice(self.texture_pools['floor'])
             room['wall_texture'] = random.choice(self.texture_pools['wall'])
             room['ceiling_texture'] = random.choice(self.texture_pools['ceiling'])
-            return
+        else:
+            theme = self.texture_themes[theme_name]
 
-        theme = self.texture_themes[theme_name]
+            # Pick one texture from each category for this room
+            room['floor_texture'] = random.choice(theme['floor'])
+            room['wall_texture'] = random.choice(theme['wall'])
+            room['ceiling_texture'] = random.choice(theme['ceiling'])
 
-        # Pick one texture from each category for this room
-        room['floor_texture'] = random.choice(theme['floor'])
-        room['wall_texture'] = random.choice(theme['wall'])
-        room['ceiling_texture'] = random.choice(theme['ceiling'])
+        # Check if room type overrides ceiling texture (e.g., outdoor rooms with sky)
+        room_type_name = room.get('type', 'plain')
+        room_type = self.room_types.get(room_type_name, {})
+        if 'ceiling_texture' in room_type:
+            room['ceiling_texture'] = room_type['ceiling_texture']
 
     def generate(self):
         """Generate the dungeon layout"""
@@ -610,21 +805,35 @@ class QuakeDungeonGenerator:
         
     def _place_random_room(self, max_attempts=50):
         """Try to place a random room on the grid"""
+        # Select room type first
+        room_type_name = self._select_room_type()
+
         for _ in range(max_attempts):
-            width = random.randint(self.room_min, self.room_max)
-            height = random.randint(self.room_min, self.room_max)
+            # Get dimensions based on room type
+            width, height = self._get_room_dimensions(room_type_name)
+
+            # Ensure dimensions fit in grid
+            if width >= self.grid_size or height >= self.grid_size:
+                continue
+
             x = random.randint(0, self.grid_size - width)
             y = random.randint(0, self.grid_size - height)
-            
+
             # Check if space is free
             if self._is_space_free(x, y, width, height):
                 # Mark space as occupied
                 for dy in range(height):
                     for dx in range(width):
                         self.grid[y + dy][x + dx] = True
-                
-                return {'x': x, 'y': y, 'width': width, 'height': height}
-        
+
+                return {
+                    'x': x,
+                    'y': y,
+                    'width': width,
+                    'height': height,
+                    'type': room_type_name
+                }
+
         return None
     
     def _is_space_free(self, x, y, width, height):
@@ -1007,76 +1216,112 @@ class QuakeDungeonGenerator:
             raise ValueError(f"Invalid texture_type '{texture_type}' or empty texture list")
 
     def _spawn_room_entities(self, room, entity_num):
-        """Spawn entities in a room
-        
-        MODIFIED: Every room gets at least one monster. Additional entities 
-        (supplies, weapons, ammo) are spawned based on spawn_chance.
-        
+        """Spawn entities in a room based on room type
+
         Args:
-            room: Room dictionary with x, y, width, height
+            room: Room dictionary with x, y, width, height, type
             entity_num: Starting entity number for spawned entities
-        
+
         Returns:
             Tuple of (entities_list, next_entity_num)
             entities_list: List of entity dictionaries with classname and origin
         """
         entities = []
-        
+
+        # Get room type information
+        room_type_name = room.get('type', 'plain')
+        room_type = self.room_types.get(room_type_name, self.room_types['plain'])
+        entity_mode = room_type.get('entity_mode', 'normal')
+
         # Calculate room bounds in Quake units
         room_x1 = room['x'] * self.cell_size
         room_y1 = room['y'] * self.cell_size
         room_x2 = room_x1 + (room['width'] * self.cell_size)
         room_y2 = room_y1 + (room['height'] * self.cell_size)
-        
+
         # Add some padding from walls
         padding = 48
         room_x1 += padding
         room_y1 += padding
         room_x2 -= padding
         room_y2 -= padding
-        
-        # ALWAYS spawn at least one monster
-        monster_class = random.choice(self.entity_pools['monsters'])
-        x = random.randint(int(room_x1), int(room_x2))
-        y = random.randint(int(room_y1), int(room_y2))
-        z = self.floor_height + 24  # Spawn at floor level + 24 units
-        
-        entities.append({
-            'num': entity_num,
-            'classname': monster_class,
-            'origin': f"{x} {y} {z}"
-        })
-        entity_num += 1
-        
-        # Now check if this room should have additional spawns (supplies, weapons, etc.)
-        if random.random() > self.spawn_chance:
-            return entities, entity_num
-        
-        # Decide how many additional entities to spawn (1-3)
-        # These will be supplies, not guaranteed to be monsters
-        num_additional = random.randint(1, 3)
-        
-        # Categories that can be spawned as additional entities
-        # We include monsters here too for variety, but supplies are also possible
-        additional_categories = list(self.entity_pools.keys())
-        
-        for i in range(num_additional):
-            # Pick a random category
-            category = random.choice(additional_categories)
-            entity_class = random.choice(self.entity_pools[category])
-            
-            # Generate random position within room bounds
+
+        # Helper function to spawn an entity at random position
+        def spawn_entity(classname):
+            nonlocal entity_num
             x = random.randint(int(room_x1), int(room_x2))
             y = random.randint(int(room_y1), int(room_y2))
             z = self.floor_height + 24
-            
             entities.append({
                 'num': entity_num,
-                'classname': entity_class,
+                'classname': classname,
                 'origin': f"{x} {y} {z}"
             })
             entity_num += 1
-        
+
+        # Handle different entity modes
+        if entity_mode == 'none':
+            # Empty room - no entities
+            return entities, entity_num
+
+        elif entity_mode == 'supplies_only':
+            # Safe room - only items, no monsters
+            num_items = random.randint(3, 6)
+            supply_categories = ['weapons', 'ammo', 'health', 'armor']
+            for _ in range(num_items):
+                category = random.choice(supply_categories)
+                entity_class = random.choice(self.entity_pools[category])
+                spawn_entity(entity_class)
+
+        elif entity_mode == 'minimal':
+            # Small room - maybe one monster or one item
+            if random.random() < 0.5:
+                monster_class = random.choice(self.entity_pools['monsters'])
+                spawn_entity(monster_class)
+            else:
+                category = random.choice(['ammo', 'health'])
+                entity_class = random.choice(self.entity_pools[category])
+                spawn_entity(entity_class)
+
+        elif entity_mode == 'ambush':
+            # Ambush - many monsters
+            multiplier = room_type.get('entity_multiplier', 2.5)
+            num_monsters = int(random.randint(2, 4) * multiplier)
+            for _ in range(num_monsters):
+                monster_class = random.choice(self.entity_pools['monsters'])
+                spawn_entity(monster_class)
+
+        elif entity_mode == 'horde':
+            # Horde - many weak monsters
+            num_monsters = random.randint(5, 8)
+            weak_monsters = ['monster_army', 'monster_dog', 'monster_zombie', 'monster_grunt']
+            for _ in range(num_monsters):
+                monster_class = random.choice(weak_monsters)
+                spawn_entity(monster_class)
+
+        elif entity_mode == 'boss':
+            # Boss arena - fewer but tougher enemies
+            tough_monsters = ['monster_ogre', 'monster_hell_knight', 'monster_demon1', 'monster_enforcer']
+            num_monsters = random.randint(2, 4)
+            for _ in range(num_monsters):
+                monster_class = random.choice(tough_monsters)
+                spawn_entity(monster_class)
+
+        else:  # 'normal' mode (default)
+            # Always spawn at least one monster
+            monster_class = random.choice(self.entity_pools['monsters'])
+            spawn_entity(monster_class)
+
+            # Check if this room should have additional spawns
+            if random.random() <= self.spawn_chance:
+                num_additional = random.randint(1, 3)
+                additional_categories = list(self.entity_pools.keys())
+
+                for _ in range(num_additional):
+                    category = random.choice(additional_categories)
+                    entity_class = random.choice(self.entity_pools[category])
+                    spawn_entity(entity_class)
+
         return entities, entity_num
 
 
@@ -1317,14 +1562,59 @@ class QuakeDungeonGenerator:
 
             # Lights and spawned items/monsters
             for room in self.rooms:
-                x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) / 2
-                y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) / 2
-                z = self.ceiling_height - 32
-                f.write(f'// entity {entity_num}\n{{\n')
-                f.write('"classname" "light"\n')
-                f.write(f'"origin" "{x} {y} {z}"\n')
-                f.write('"light" "600"\n}\n')
-                entity_num += 1
+                room_type_name = room.get('type', 'plain')
+                room_type = self.room_types.get(room_type_name, self.room_types['plain'])
+
+                # Handle multi-light rooms
+                if room_type.get('multi_lights', False):
+                    # Place lights in the four corners
+                    light_positions = []
+                    offset_x = (room['width'] * self.cell_size) * 0.3
+                    offset_y = (room['height'] * self.cell_size) * 0.3
+
+                    base_x = room['x'] * self.cell_size
+                    base_y = room['y'] * self.cell_size
+
+                    light_positions.append((base_x + offset_x, base_y + offset_y))
+                    light_positions.append((base_x + room['width'] * self.cell_size - offset_x, base_y + offset_y))
+                    light_positions.append((base_x + offset_x, base_y + room['height'] * self.cell_size - offset_y))
+                    light_positions.append((base_x + room['width'] * self.cell_size - offset_x, base_y + room['height'] * self.cell_size - offset_y))
+
+                    # If room is large enough, add a center light too
+                    if room['width'] >= 4 and room['height'] >= 4:
+                        center_x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) / 2
+                        center_y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) / 2
+                        light_positions.append((center_x, center_y))
+
+                    for light_x, light_y in light_positions:
+                        z = self.ceiling_height - 32
+                        f.write(f'// entity {entity_num}\n{{\n')
+                        f.write('"classname" "light"\n')
+                        f.write(f'"origin" "{light_x} {light_y} {z}"\n')
+                        f.write(f'"light" "{room_type.get("lighting", 600)}"\n')
+
+                        # Add color if specified
+                        if 'light_color' in room_type:
+                            f.write(f'"_color" "{room_type["light_color"]}"\n')
+
+                        f.write('}\n')
+                        entity_num += 1
+                else:
+                    # Single center light
+                    x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) / 2
+                    y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) / 2
+                    z = self.ceiling_height - 32
+                    f.write(f'// entity {entity_num}\n{{\n')
+                    f.write('"classname" "light"\n')
+                    f.write(f'"origin" "{x} {y} {z}"\n')
+                    f.write(f'"light" "{room_type.get("lighting", 600)}"\n')
+
+                    # Add color if specified
+                    if 'light_color' in room_type:
+                        f.write(f'"_color" "{room_type["light_color"]}"\n')
+
+                    f.write('}\n')
+                    entity_num += 1
 
                 if self.spawn_entities:
                     room_entities, entity_num = self._spawn_room_entities(room, entity_num)
@@ -1488,22 +1778,31 @@ class QuakeDungeonGenerator:
         if num_teleporter_pairs > 0:
             print(f"Added {num_teleporter_pairs} teleporter pair(s) to connect disconnected room groups")
 
+        # Print room type statistics
+        if self.rooms:
+            print("\nRoom Type Distribution:")
+            type_counts = {}
+            for room in self.rooms:
+                room_type = room.get('type', 'plain')
+                type_counts[room_type] = type_counts.get(room_type, 0) + 1
+
+            for room_type, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
+                type_name = self.room_types.get(room_type, {}).get('name', room_type)
+                print(f"  {type_name}: {count}")
+
         # Print theme assignments
         if self.texture_variety and self.rooms:
-            print("\nRoom Themes:")
-            for i, room in enumerate(self.rooms):
+            print("\nRoom Details (first 5 rooms):")
+            for i in range(min(5, len(self.rooms))):
+                room = self.rooms[i]
                 theme_name = room.get('theme', 'unknown')
                 theme_display = self.texture_themes.get(theme_name, {}).get('name', theme_name)
-                print(f"  Room {i+1}: {theme_display}")
+                room_type = room.get('type', 'plain')
+                type_display = self.room_types.get(room_type, {}).get('name', room_type)
 
-            # Print first 3 rooms' specific texture assignments for verification
-            print("\nSample Room Textures (first 3 rooms):")
-            for i in range(min(3, len(self.rooms))):
-                room = self.rooms[i]
-                print(f"  Room {i+1}:")
-                print(f"    Floor: {room.get('floor_texture', 'N/A')}")
-                print(f"    Wall: {room.get('wall_texture', 'N/A')}")
-                print(f"    Ceiling: {room.get('ceiling_texture', 'N/A')}")
+                print(f"  Room {i+1}: {type_display} ({theme_display} theme)")
+                print(f"    Size: {room['width']}x{room['height']} cells")
+                print(f"    Textures: {room.get('floor_texture', 'N/A')} / {room.get('wall_texture', 'N/A')} / {room.get('ceiling_texture', 'N/A')}")
 
 
 if __name__ == '__main__':
