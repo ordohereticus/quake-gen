@@ -219,21 +219,7 @@ class QuakeDungeonGenerator:
 
             # DOOR TEXTURES
             'door': [
-                'door01_2',
-                'door02_1', 'door02_2', 'door02_3', 'door02_7',
-                'door03_2', 'door03_3', 'door03_4', 'door03_5',
-                'door04_1', 'door04_2',
-                'door05_2', 'door05_3',
-                'adoor01_2',
-                'adoor02_2',
-                'adoor03_2', 'adoor03_3', 'adoor03_4', 'adoor03_5', 'adoor03_6',
-                'adoor09_1', 'adoor09_2',
-                'edoor01_1',
-                'dr01_1', 'dr01_2',
-                'dr02_1', 'dr02_2',
-                'dr03_1',
-                'dr05_2',
-                'dr07_1',
+                'door01_2'
             ],
 
             # LIGHT TEXTURES - Illuminated surfaces
@@ -1015,65 +1001,83 @@ class QuakeDungeonGenerator:
 
     def _spawn_room_entities(self, room, entity_num):
         """Spawn entities in a room
-
+        
+        MODIFIED: Every room gets at least one monster. Additional entities 
+        (supplies, weapons, ammo) are spawned based on spawn_chance.
+        
         Args:
             room: Room dictionary with x, y, width, height
             entity_num: Starting entity number for spawned entities
-
+        
         Returns:
             Tuple of (entities_list, next_entity_num)
             entities_list: List of entity dictionaries with classname and origin
         """
         entities = []
-
-        # Check if this room should have spawns
-        if random.random() > self.spawn_chance:
-            return entities, entity_num
-
+        
         # Calculate room bounds in Quake units
         room_x1 = room['x'] * self.cell_size
         room_y1 = room['y'] * self.cell_size
         room_x2 = room_x1 + (room['width'] * self.cell_size)
         room_y2 = room_y1 + (room['height'] * self.cell_size)
-
-        # Add some padding from walls (32 units)
+        
+        # Add some padding from walls
         padding = 48
         room_x1 += padding
         room_y1 += padding
         room_x2 -= padding
         room_y2 -= padding
-
-        # Decide how many entities to spawn (1-3)
-        num_entities = random.randint(1, 3)
-
-        # Pick random entity categories
-        categories = list(self.entity_pools.keys())
-
-        for i in range(num_entities):
+        
+        # ALWAYS spawn at least one monster
+        monster_class = random.choice(self.entity_pools['monsters'])
+        x = random.randint(int(room_x1), int(room_x2))
+        y = random.randint(int(room_y1), int(room_y2))
+        z = self.floor_height + 24  # Spawn at floor level + 24 units
+        
+        entities.append({
+            'num': entity_num,
+            'classname': monster_class,
+            'origin': f"{x} {y} {z}"
+        })
+        entity_num += 1
+        
+        # Now check if this room should have additional spawns (supplies, weapons, etc.)
+        if random.random() > self.spawn_chance:
+            return entities, entity_num
+        
+        # Decide how many additional entities to spawn (1-3)
+        # These will be supplies, not guaranteed to be monsters
+        num_additional = random.randint(1, 3)
+        
+        # Categories that can be spawned as additional entities
+        # We include monsters here too for variety, but supplies are also possible
+        additional_categories = list(self.entity_pools.keys())
+        
+        for i in range(num_additional):
             # Pick a random category
-            category = random.choice(categories)
+            category = random.choice(additional_categories)
             entity_class = random.choice(self.entity_pools[category])
-
+            
             # Generate random position within room bounds
             x = random.randint(int(room_x1), int(room_x2))
             y = random.randint(int(room_y1), int(room_y2))
-            z = self.floor_height + 24  # Spawn at floor level + 24 units
-
+            z = self.floor_height + 24
+            
             entities.append({
                 'num': entity_num,
                 'classname': entity_class,
                 'origin': f"{x} {y} {z}"
             })
             entity_num += 1
-
+        
         return entities, entity_num
+
 
     def _generate_dungeon_walls(self, f, room_map):
         """
         Generates walls on boundaries. If a door exists on a boundary, it
         builds the wall pieces around the door's location, creating a frame.
-        This version clamps door coordinates AND adds volume checks to prevent
-        creating invalid zero-thickness brushes.
+        This version prevents overlapping walls while maintaining complete enclosure.
         """
         wall_thick = self.wall_thickness
         wall_top_z = self.ceiling_height + self.door_height + self.wall_thickness
@@ -1091,10 +1095,17 @@ class QuakeDungeonGenerator:
                 # --- Check North & South (Horizontal Walls) ---
                 for dy, direction in [(y - 1, 'north'), (y + 1, 'south')]:
                     neighbor_idx = room_map[dy][x] if 0 <= dy < self.grid_size else -1
+                    
+                    # Skip if same room (multi-cell rooms)
                     if neighbor_idx == room_idx:
                         continue
                     
-                    door = door_map.get(tuple(sorted((room_idx, neighbor_idx))))
+                    # If neighbor is a different room (not empty space), only generate wall
+                    # if we're the lower-indexed room to prevent duplication
+                    if neighbor_idx != -1 and room_idx > neighbor_idx:
+                        continue
+                    
+                    door = door_map.get(tuple(sorted((room_idx, neighbor_idx)))) if neighbor_idx != -1 else None
                     
                     cell_x1 = x * self.cell_size
                     cell_x2 = cell_x1 + self.cell_size
@@ -1113,8 +1124,7 @@ class QuakeDungeonGenerator:
                         clamped_dx2 = min(cell_x2, door_x2)
 
                         if clamped_dx1 < clamped_dx2:
-                            # --- FINAL FIX ---
-                            # Only write frame pieces if they have volume.
+                            # Only write frame pieces if they have volume
                             if cell_x1 < clamped_dx1: # Left of door
                                 self._write_brush(f, cell_x1, min_y, self.floor_height, clamped_dx1, max_y, wall_top_z, 'wall', current_room)
                             if clamped_dx2 < cell_x2: # Right of door
@@ -1124,15 +1134,23 @@ class QuakeDungeonGenerator:
                             self._write_brush(f, clamped_dx1, min_y, door_z2, clamped_dx2, max_y, wall_top_z, 'wall', current_room)
                             continue
 
+                    # No door or door doesn't overlap this cell
                     self._write_brush(f, cell_x1, min_y, self.floor_height, cell_x2, max_y, wall_top_z, 'wall', current_room)
 
                 # --- Check West & East (Vertical Walls) ---
                 for dx, direction in [(x - 1, 'west'), (x + 1, 'east')]:
                     neighbor_idx = room_map[y][dx] if 0 <= dx < self.grid_size else -1
+                    
+                    # Skip if same room (multi-cell rooms)
                     if neighbor_idx == room_idx:
                         continue
 
-                    door = door_map.get(tuple(sorted((room_idx, neighbor_idx))))
+                    # If neighbor is a different room (not empty space), only generate wall
+                    # if we're the lower-indexed room to prevent duplication
+                    if neighbor_idx != -1 and room_idx > neighbor_idx:
+                        continue
+
+                    door = door_map.get(tuple(sorted((room_idx, neighbor_idx)))) if neighbor_idx != -1 else None
 
                     cell_y1 = y * self.cell_size
                     cell_y2 = cell_y1 + self.cell_size
@@ -1151,18 +1169,19 @@ class QuakeDungeonGenerator:
                         clamped_dy2 = min(cell_y2, door_y2)
                         
                         if clamped_dy1 < clamped_dy2:
-                            # --- FINAL FIX ---
-                            # Only write frame pieces if they have volume.
+                            # Only write frame pieces if they have volume
                             if cell_y1 < clamped_dy1: # Below door
                                 self._write_brush(f, min_x, cell_y1, self.floor_height, max_x, clamped_dy1, wall_top_z, 'wall', current_room)
                             if clamped_dy2 < cell_y2: # Above door
                                 self._write_brush(f, min_x, clamped_dy2, self.floor_height, max_x, cell_y2, wall_top_z, 'wall', current_room)
 
-                            # Lintel (side piece in this orientation)
+                            # Lintel
                             self._write_brush(f, min_x, clamped_dy1, door_z2, max_x, clamped_dy2, wall_top_z, 'wall', current_room)
                             continue
 
+                    # No door or door doesn't overlap this cell
                     self._write_brush(f, min_x, cell_y1, self.floor_height, max_x, cell_y2, wall_top_z, 'wall', current_room)
+
 
     def _build_theme_map(self):
         """Build a mapping of grid cells to themes
