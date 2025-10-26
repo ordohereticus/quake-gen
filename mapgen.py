@@ -692,40 +692,64 @@ class QuakeDungeonGenerator:
         return None
 
     def _create_doors(self):
-        """Create doors between adjacent rooms"""
+        """Create doors between adjacent rooms
+
+        Doors are positioned exactly at the boundary between two rooms.
+        The angle controls the direction the door moves when opening.
+        """
         # Check each pair of rooms to see if they're adjacent
         for i in range(len(self.rooms)):
             for j in range(i + 1, len(self.rooms)):
                 adjacency = self._find_adjacent_rooms(self.rooms[i], self.rooms[j])
                 if adjacency:
-                    # Rooms are adjacent, create a door
-                    grid_x, grid_y = adjacency['position']
+                    # Get the boundary position and calculate door center
+                    room1 = self.rooms[i]
+                    room2 = self.rooms[j]
 
-                    # Convert to Quake units
-                    # Door is centered in the cell
-                    door_x = (grid_x * self.cell_size) + (self.cell_size // 2)
-                    door_y = (grid_y * self.cell_size) + (self.cell_size // 2)
-                    door_z = self.floor_height + 64  # Door height from floor
-
-                    # Calculate angle based on direction
-                    # In Quake: 0 = East, 90 = North, 180 = West, 270 = South
-                    angle_map = {
-                        'east': 0,
-                        'north': 90,
-                        'west': 180,
-                        'south': 270
-                    }
-
-                    door_angle = angle_map.get(adjacency['direction'], 0)
+                    # Position door at the exact wall boundary between rooms
+                    if adjacency['direction'] == 'east':
+                        # Door on east wall of room1 (vertical wall)
+                        door_x = (room1['x'] + room1['width']) * self.cell_size
+                        # Center door in the overlapping region
+                        y_overlap_start = max(room1['y'], room2['y'])
+                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+                        door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
+                        # Door moves north (into room1) or south
+                        door_angle = 90  # Move north
+                    elif adjacency['direction'] == 'west':
+                        # Door on west wall of room1 (vertical wall)
+                        door_x = room1['x'] * self.cell_size
+                        y_overlap_start = max(room1['y'], room2['y'])
+                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+                        door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
+                        # Door moves north or south
+                        door_angle = 270  # Move south
+                    elif adjacency['direction'] == 'south':
+                        # Door on south wall of room1 (horizontal wall)
+                        door_y = (room1['y'] + room1['height']) * self.cell_size
+                        # Center door in the overlapping region
+                        x_overlap_start = max(room1['x'], room2['x'])
+                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+                        door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
+                        # Door moves east or west
+                        door_angle = 0  # Move east
+                    else:  # north
+                        # Door on north wall of room1 (horizontal wall)
+                        door_y = room1['y'] * self.cell_size
+                        x_overlap_start = max(room1['x'], room2['x'])
+                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+                        door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
+                        # Door moves east or west
+                        door_angle = 180  # Move west
 
                     # Get door texture
                     door_texture = random.choice(self.texture_pools['door'])
 
                     self.doors.append({
-                        'origin': f"{door_x} {door_y} {door_z}",
+                        'origin': f"{door_x} {door_y} {self.floor_height + 64}",
                         'angle': door_angle,
                         'texture': door_texture,
-                        'grid_pos': (grid_x, grid_y),
+                        'position': (door_x, door_y),
                         'direction': adjacency['direction']
                     })
 
@@ -841,45 +865,46 @@ class QuakeDungeonGenerator:
 
         wall_thick = self.wall_thickness
 
-        # Find all doors on this room's perimeter
+        # Find all doors on this room's perimeter walls (exact boundary matching)
         room_doors = []
         for door in self.doors:
-            origin_parts = door["origin"].split()
-            door_x = float(origin_parts[0])
-            door_y = float(origin_parts[1])
+            door_x, door_y = door['position']
 
-            # Check if door is on this room's perimeter walls
-            on_north = abs(door_y - room_y2) < self.cell_size / 2
-            on_south = abs(door_y - room_y1) < self.cell_size / 2
-            on_east = abs(door_x - room_x2) < self.cell_size / 2
-            on_west = abs(door_x - room_x1) < self.cell_size / 2
+            # Check if door is exactly on this room's perimeter boundaries
+            # Use small tolerance (1 unit) for floating point comparison
+            tolerance = 1
+            on_north = abs(door_y - room_y2) < tolerance
+            on_south = abs(door_y - room_y1) < tolerance
+            on_east = abs(door_x - room_x2) < tolerance
+            on_west = abs(door_x - room_x1) < tolerance
 
             if (on_north or on_south or on_east or on_west):
                 room_doors.append({
                     'x': door_x,
                     'y': door_y,
-                    'direction': door['direction']
+                    'direction': door['direction'],
+                    'on_wall': 'north' if on_north else 'south' if on_south else 'east' if on_east else 'west'
                 })
 
         # Generate each of the 4 perimeter walls with openings for doors
 
-        # NORTH WALL (top edge)
-        north_doors = [d for d in room_doors if abs(d['y'] - room_y2) < self.cell_size / 2]
+        # NORTH WALL (top edge, Y = room_y2)
+        north_doors = [d for d in room_doors if d['on_wall'] == 'north']
         self._generate_wall_segments(f, room_x1, room_y2, room_x2, room_y2 + wall_thick,
                                      north_doors, 'horizontal', room)
 
-        # SOUTH WALL (bottom edge)
-        south_doors = [d for d in room_doors if abs(d['y'] - room_y1) < self.cell_size / 2]
+        # SOUTH WALL (bottom edge, Y = room_y1)
+        south_doors = [d for d in room_doors if d['on_wall'] == 'south']
         self._generate_wall_segments(f, room_x1, room_y1 - wall_thick, room_x2, room_y1,
                                      south_doors, 'horizontal', room)
 
-        # EAST WALL (right edge)
-        east_doors = [d for d in room_doors if abs(d['x'] - room_x2) < self.cell_size / 2]
+        # EAST WALL (right edge, X = room_x2)
+        east_doors = [d for d in room_doors if d['on_wall'] == 'east']
         self._generate_wall_segments(f, room_x2, room_y1, room_x2 + wall_thick, room_y2,
                                      east_doors, 'vertical', room)
 
-        # WEST WALL (left edge)
-        west_doors = [d for d in room_doors if abs(d['x'] - room_x1) < self.cell_size / 2]
+        # WEST WALL (left edge, X = room_x1)
+        west_doors = [d for d in room_doors if d['on_wall'] == 'west']
         self._generate_wall_segments(f, room_x1 - wall_thick, room_y1, room_x1, room_y2,
                                      west_doors, 'vertical', room)
 
@@ -1126,26 +1151,26 @@ class QuakeDungeonGenerator:
                 door_thickness = 8
                 door_height = 128
 
-                # Parse origin to get position
-                origin_parts = door["origin"].split()
-                door_x = float(origin_parts[0])
-                door_y = float(origin_parts[1])
+                # Get door position
+                door_x, door_y = door['position']
                 door_z_base = self.floor_height
 
-                # Adjust door position based on direction
-                # The direction indicates which wall the door is on
+                # Position door based on which wall it's on
+                # Door should be flush with the wall opening
                 if door["direction"] == 'east' or door["direction"] == 'west':
-                    # Door is on a vertical wall (runs north-south), wide in X direction
-                    x1 = door_x - door_width // 2
-                    x2 = door_x + door_width // 2
-                    y1 = door_y - door_thickness // 2
-                    y2 = door_y + door_thickness // 2
+                    # Door is on a vertical wall (east or west wall of a room)
+                    # Door is thin in Y direction, wide in X direction
+                    x1 = door_x - door_width / 2
+                    x2 = door_x + door_width / 2
+                    y1 = door_y - door_thickness / 2
+                    y2 = door_y + door_thickness / 2
                 else:  # north or south
-                    # Door is on a horizontal wall (runs east-west), wide in Y direction
-                    x1 = door_x - door_thickness // 2
-                    x2 = door_x + door_thickness // 2
-                    y1 = door_y - door_width // 2
-                    y2 = door_y + door_width // 2
+                    # Door is on a horizontal wall (north or south wall of a room)
+                    # Door is thin in X direction, wide in Y direction
+                    x1 = door_x - door_thickness / 2
+                    x2 = door_x + door_thickness / 2
+                    y1 = door_y - door_width / 2
+                    y2 = door_y + door_width / 2
 
                 z1 = door_z_base
                 z2 = door_z_base + door_height
