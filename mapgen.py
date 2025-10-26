@@ -851,6 +851,7 @@ class QuakeDungeonGenerator:
         Doors are positioned exactly at the boundary between two rooms.
         The angle controls the direction the door moves when opening.
         Only places doors where there is clear passage on both sides.
+        Doors are placed away from corners to avoid intersection issues.
         """
         skipped_doors = 0
         # Check each pair of rooms to see if they're adjacent
@@ -864,37 +865,47 @@ class QuakeDungeonGenerator:
 
                     # Position door at the exact wall boundary between rooms
                     # All doors slide UPWARD (angle -1) into a pocket above them
+                    # IMPORTANT: Shrink overlap by 0.75 cells on each end to avoid corners
+                    corner_buffer = 0.75  # Grid cells to avoid near corners
+
                     if adjacency['direction'] == 'east':
                         # Door on east wall of room1 (vertical wall)
                         door_x = (room1['x'] + room1['width']) * self.cell_size
-                        # Center door in the overlapping region
-                        y_overlap_start = max(room1['y'], room2['y'])
-                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+                        # Get overlap and shrink to avoid corners
+                        y_overlap_start = max(room1['y'], room2['y']) + corner_buffer
+                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height']) - corner_buffer
+                        if y_overlap_end - y_overlap_start < 0.5:
+                            skipped_doors += 1
+                            continue  # Overlap too small after corner buffer
                         door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
                     elif adjacency['direction'] == 'west':
                         # Door on west wall of room1 (vertical wall)
                         door_x = room1['x'] * self.cell_size
-                        y_overlap_start = max(room1['y'], room2['y'])
-                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+                        y_overlap_start = max(room1['y'], room2['y']) + corner_buffer
+                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height']) - corner_buffer
+                        if y_overlap_end - y_overlap_start < 0.5:
+                            skipped_doors += 1
+                            continue  # Overlap too small after corner buffer
                         door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
                     elif adjacency['direction'] == 'south':
                         # Door on south wall of room1 (horizontal wall)
                         door_y = (room1['y'] + room1['height']) * self.cell_size
-                        # Center door in the overlapping region
-                        x_overlap_start = max(room1['x'], room2['x'])
-                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+                        # Get overlap and shrink to avoid corners
+                        x_overlap_start = max(room1['x'], room2['x']) + corner_buffer
+                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width']) - corner_buffer
+                        if x_overlap_end - x_overlap_start < 0.5:
+                            skipped_doors += 1
+                            continue  # Overlap too small after corner buffer
                         door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
                     else:  # north
                         # Door on north wall of room1 (horizontal wall)
                         door_y = room1['y'] * self.cell_size
-                        x_overlap_start = max(room1['x'], room2['x'])
-                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+                        x_overlap_start = max(room1['x'], room2['x']) + corner_buffer
+                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width']) - corner_buffer
+                        if x_overlap_end - x_overlap_start < 0.5:
+                            skipped_doors += 1
+                            continue  # Overlap too small after corner buffer
                         door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
-
-                    # Check if door is at a corner where 3+ rooms meet
-                    if self._is_door_at_corner_intersection(door_x, door_y):
-                        skipped_doors += 1
-                        continue  # Skip this door - at corner intersection
 
                     # Check if door has clear passage on both sides
                     if not self._check_door_clearance(door_x, door_y, adjacency['direction'], room1, room2):
