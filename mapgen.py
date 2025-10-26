@@ -14,7 +14,7 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=0.7):
+    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=1):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
@@ -36,6 +36,9 @@ class QuakeDungeonGenerator:
         self.wall_thickness = 16
         self.floor_height = 0
         self.ceiling_height = 192
+        self.door_width = 64
+        self.door_thickness = 8
+        self.door_height = 128
         self.texture_variety = texture_variety
         self.wad_path = wad_path
         self.spawn_entities = spawn_entities
@@ -436,6 +439,7 @@ class QuakeDungeonGenerator:
         self.grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
         self.rooms = []
         self.doors = []
+        self.teleporters = []
 
         # Define coherent texture themes
         # Each theme has floor, wall, and ceiling textures that work well together
@@ -553,6 +557,23 @@ class QuakeDungeonGenerator:
         self.last_theme = theme
         return theme
 
+    def _write_simple_brush(self, f, x1, y1, z1, x2, y2, z2, texture):
+        """Writes a simple brush where all faces have the same texture."""
+        f.write('{\n')
+        # West face
+        f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) ( {x1} {y1} {z1+1} ) {texture} 0 0 0 1 1\n')
+        # East face
+        f.write(f'( {x2} {y1} {z1} ) ( {x2} {y1} {z1+1} ) ( {x2} {y1+1} {z1} ) {texture} 0 0 0 1 1\n')
+        # South face
+        f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1} {z1+1} ) ( {x1+1} {y1} {z1} ) {texture} 0 0 0 1 1\n')
+        # North face
+        f.write(f'( {x1} {y2} {z1} ) ( {x1+1} {y2} {z1} ) ( {x1} {y2} {z1+1} ) {texture} 0 0 0 1 1\n')
+        # Bottom face
+        f.write(f'( {x1} {y1} {z1} ) ( {x1+1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) {texture} 0 0 0 1 1\n')
+        # Top face
+        f.write(f'( {x1} {y1} {z2} ) ( {x1} {y1+1} {z2} ) ( {x1+1} {y1} {z2} ) {texture} 0 0 0 1 1\n')
+        f.write('}\n')
+
     def _assign_room_textures(self, room):
         """Assign specific textures to a room based on its theme
 
@@ -590,6 +611,9 @@ class QuakeDungeonGenerator:
 
         # Create doors between adjacent rooms
         self._create_doors()
+
+        # Check connectivity and add teleporters if needed
+        self._ensure_connectivity()
         
     def _place_random_room(self, max_attempts=50):
         """Try to place a random room on the grid"""
@@ -691,63 +715,264 @@ class QuakeDungeonGenerator:
 
         return None
 
-    def _create_doors(self):
-        """Create doors between adjacent rooms
+    
+    def _is_door_at_corner_intersection(self, door_x, door_y):
+        """Check if a door is at a corner where 3 or more rooms meet
 
-        Doors are positioned exactly at the boundary between two rooms.
-        The angle controls the direction the door moves when opening.
+        Args:
+            door_x, door_y: Door position in Quake units
+
+        Returns:
+            True if 3+ rooms meet at this point, False otherwise
         """
-        # Check each pair of rooms to see if they're adjacent
+        # Convert to grid coordinates
+        door_grid_x = door_x / self.cell_size
+        door_grid_y = door_y / self.cell_size
+
+        # Find the nearest grid corner point (integer coordinates)
+        corner_x = round(door_grid_x)
+        corner_y = round(door_grid_y)
+
+        # Check if the door is close to a grid corner (within 0.1 cells)
+        tolerance = 0.1
+        if abs(door_grid_x - corner_x) > tolerance and abs(door_grid_y - corner_y) > tolerance:
+            return False  # Not at a corner
+
+        # Count how many rooms have a corner at or very near this grid point
+        rooms_at_corner = 0
+        corner_tolerance = 0.01  # Very small tolerance for exact corner matching
+
+        for room in self.rooms:
+            # Check all 4 corners of this room
+            room_corners = [
+                (room['x'], room['y']),  # Top-left
+                (room['x'] + room['width'], room['y']),  # Top-right
+                (room['x'], room['y'] + room['height']),  # Bottom-left
+                (room['x'] + room['width'], room['y'] + room['height'])  # Bottom-right
+            ]
+
+            for rx, ry in room_corners:
+                if abs(rx - corner_x) < corner_tolerance and abs(ry - corner_y) < corner_tolerance:
+                    rooms_at_corner += 1
+                    break  # Only count this room once
+
+        # If 3 or more rooms meet at this corner, the door would be blocked
+        return rooms_at_corner >= 3
+
+    def _create_doors(self):
+        """Create doors between adjacent rooms using a room_map for accurate clearance checks."""
+        if not self.rooms:
+            return
+
+        # Build a map of the grid to see which room occupies which cell.
+        room_map = self._build_room_map()
+        
+        skipped_doors = 0
+        
         for i in range(len(self.rooms)):
             for j in range(i + 1, len(self.rooms)):
                 adjacency = self._find_adjacent_rooms(self.rooms[i], self.rooms[j])
-                if adjacency:
-                    # Get the boundary position and calculate door center
-                    room1 = self.rooms[i]
-                    room2 = self.rooms[j]
+                if not adjacency:
+                    continue
 
-                    # Position door at the exact wall boundary between rooms
-                    # All doors slide UPWARD (angle -1) into a pocket above them
-                    if adjacency['direction'] == 'east':
-                        # Door on east wall of room1 (vertical wall)
-                        door_x = (room1['x'] + room1['width']) * self.cell_size
-                        # Center door in the overlapping region
-                        y_overlap_start = max(room1['y'], room2['y'])
-                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
-                        door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
-                    elif adjacency['direction'] == 'west':
-                        # Door on west wall of room1 (vertical wall)
-                        door_x = room1['x'] * self.cell_size
-                        y_overlap_start = max(room1['y'], room2['y'])
-                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
-                        door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
-                    elif adjacency['direction'] == 'south':
-                        # Door on south wall of room1 (horizontal wall)
-                        door_y = (room1['y'] + room1['height']) * self.cell_size
-                        # Center door in the overlapping region
-                        x_overlap_start = max(room1['x'], room2['x'])
-                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
-                        door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
-                    else:  # north
-                        # Door on north wall of room1 (horizontal wall)
-                        door_y = room1['y'] * self.cell_size
-                        x_overlap_start = max(room1['x'], room2['x'])
-                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
-                        door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
+                room1 = self.rooms[i]
+                room2 = self.rooms[j]
+                
+                corner_buffer = 0.75
+                door_x, door_y = 0, 0
 
-                    # All doors slide upward
-                    door_angle = -1
+                # Calculate the valid placement area for the door, avoiding corners.
+                if adjacency['direction'] in ['east', 'west']:
+                    y_overlap_start = max(room1['y'], room2['y']) + corner_buffer
+                    y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height']) - corner_buffer
+                    if y_overlap_end - y_overlap_start < 0.5:
+                        skipped_doors += 1
+                        continue # Overlap is too small.
+                    
+                    door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
+                    door_x = (room1['x'] + room1['width']) * self.cell_size if adjacency['direction'] == 'east' else room1['x'] * self.cell_size
+                else: # north, south
+                    x_overlap_start = max(room1['x'], room2['x']) + corner_buffer
+                    x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width']) - corner_buffer
+                    if x_overlap_end - x_overlap_start < 0.5:
+                        skipped_doors += 1
+                        continue # Overlap is too small.
 
-                    # Get door texture
-                    door_texture = random.choice(self.texture_pools['door'])
+                    door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
+                    door_y = (room1['y'] + room1['height']) * self.cell_size if adjacency['direction'] == 'south' else room1['y'] * self.cell_size
 
-                    self.doors.append({
-                        'origin': f"{door_x} {door_y} {self.floor_height + 64}",
-                        'angle': door_angle,
-                        'texture': door_texture,
-                        'position': (door_x, door_y),
-                        'direction': adjacency['direction']
-                    })
+                # --- The New, Robust Clearance Check ---
+                # Convert the precise door position back to a grid cell for checking the map.
+                door_grid_x = int(door_x / self.cell_size)
+                door_grid_y = int(door_y / self.cell_size)
+
+                # Determine the grid cell on the OTHER side of the wall.
+                target_cell_x, target_cell_y = door_grid_x, door_grid_y
+                if adjacency['direction'] == 'east': target_cell_x = door_grid_x
+                elif adjacency['direction'] == 'west': target_cell_x = door_grid_x - 1
+                elif adjacency['direction'] == 'south': target_cell_y = door_grid_y
+                elif adjacency['direction'] == 'north': target_cell_y = door_grid_y - 1
+
+                # Check if the target cell is actually occupied by the intended room (room2).
+                if not (0 <= target_cell_x < self.grid_size and 0 <= target_cell_y < self.grid_size) or \
+                   room_map[target_cell_y][target_cell_x] != j:
+                    skipped_doors += 1
+                    continue # Blocked by another room or empty space.
+
+                # Final check for 3- or 4-way corner intersections.
+                if self._is_door_at_corner_intersection(door_x, door_y):
+                    skipped_doors += 1
+                    continue
+
+                # If all checks pass, create the door.
+                self.doors.append({
+                    'origin': f"{door_x} {door_y} {self.floor_height + 64}",
+                    'angle': -1, # Slide up
+                    'texture': random.choice(self.texture_pools['door']),
+                    'position': (door_x, door_y),
+                    'direction': adjacency['direction'],
+                    'room1_idx': i,
+                    'room2_idx': j
+                })
+
+        if skipped_doors > 0:
+            print(f"Skipped {skipped_doors} blocked or corner-adjacent door(s)")
+
+    def _ensure_connectivity(self):
+        """Check if all rooms are connected, and add teleporters if not
+
+        Uses BFS to find connected components. If there are multiple components,
+        adds teleporter pairs to connect them.
+        """
+        if len(self.rooms) <= 1:
+            return  # No connectivity issues with 0 or 1 rooms
+
+        # Build adjacency list from doors
+        adjacency = {i: set() for i in range(len(self.rooms))}
+        for door in self.doors:
+            room1_idx = door['room1_idx']
+            room2_idx = door['room2_idx']
+            adjacency[room1_idx].add(room2_idx)
+            adjacency[room2_idx].add(room1_idx)
+
+        # Find connected components using BFS
+        visited = set()
+        components = []
+
+        def bfs(start):
+            """BFS to find all rooms in the connected component"""
+            component = []
+            queue = [start]
+            visited.add(start)
+
+            while queue:
+                room_idx = queue.pop(0)
+                component.append(room_idx)
+
+                for neighbor in adjacency[room_idx]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+
+            return component
+
+        # Find all connected components
+        for i in range(len(self.rooms)):
+            if i not in visited:
+                component = bfs(i)
+                components.append(component)
+
+        # If all rooms are connected, we're done
+        if len(components) == 1:
+            return
+
+        # Need to connect disconnected components with teleporters
+        print(f"\nFound {len(components)} disconnected room groups. Adding teleporters...")
+
+        # Connect each component to the first one (which contains the player spawn)
+        target_component = 0  # The first component has the player spawn
+
+        for i in range(1, len(components)):
+            # Pick random rooms from each component
+            source_room_idx = random.choice(components[i])
+            target_room_idx = random.choice(components[target_component])
+
+            source_room = self.rooms[source_room_idx]
+            target_room = self.rooms[target_room_idx]
+
+            # Create teleporter pair
+            self._add_teleporter_pair(source_room, target_room,
+                                     source_room_idx, target_room_idx)
+
+            print(f"  Connected room group {i+1} to main group with teleporter")
+
+    def _add_teleporter_pair(self, room1, room2, room1_idx, room2_idx):
+        """Add a pair of teleporters connecting two rooms, including visual pads.
+
+        Args:
+            room1, room2: Room dictionaries
+            room1_idx, room2_idx: Room indices
+        """
+        # Calculate positions for teleporter pads and destinations in each room
+        # Room 1: Place trigger pad in one corner, destination in opposite corner
+        room1_trigger_x = (room1['x'] * self.cell_size) + (room1['width'] * self.cell_size) * 0.7
+        room1_trigger_y = (room1['y'] * self.cell_size) + (room1['height'] * self.cell_size) * 0.7
+        room1_trigger_z = self.floor_height
+        room1_dest_x = (room1['x'] * self.cell_size) + (room1['width'] * self.cell_size) * 0.3
+        room1_dest_y = (room1['y'] * self.cell_size) + (room1['height'] * self.cell_size) * 0.3
+        room1_dest_z = self.floor_height + 24
+
+        # Room 2: Place trigger pad in one corner, destination in opposite corner
+        room2_trigger_x = (room2['x'] * self.cell_size) + (room2['width'] * self.cell_size) * 0.3
+        room2_trigger_y = (room2['y'] * self.cell_size) + (room2['height'] * self.cell_size) * 0.3
+        room2_trigger_z = self.floor_height
+        room2_dest_x = (room2['x'] * self.cell_size) + (room2['width'] * self.cell_size) * 0.7
+        room2_dest_y = (room2['y'] * self.cell_size) + (room2['height'] * self.cell_size) * 0.7
+        room2_dest_z = self.floor_height + 24
+
+        teleporter_id = len(self.teleporters)
+        target1 = f"tele_dest_{teleporter_id}_a"
+        target2 = f"tele_dest_{teleporter_id}_b"
+
+        # Create teleporter from room1 to room2
+        self.teleporters.append({
+            'type': 'trigger',
+            'origin': (room1_trigger_x, room1_trigger_y, room1_trigger_z),
+            'target': target2,
+            'room_idx': room1_idx
+        })
+        self.teleporters.append({
+            'type': 'destination',
+            'origin': (room2_dest_x, room2_dest_y, room2_dest_z),
+            'targetname': target2,
+            'angle': 180,
+            'room_idx': room2_idx
+        })
+        ### MODIFICATION: Add data for a visible pad in Room 1
+        self.teleporters.append({
+            'type': 'visual_pad',
+            'origin': (room1_trigger_x, room1_trigger_y, room1_trigger_z)
+        })
+
+        # Create return teleporter from room2 to room1
+        self.teleporters.append({
+            'type': 'trigger',
+            'origin': (room2_trigger_x, room2_trigger_y, room2_trigger_z),
+            'target': target1,
+            'room_idx': room2_idx
+        })
+        self.teleporters.append({
+            'type': 'destination',
+            'origin': (room1_dest_x, room1_dest_y, room1_dest_z),
+            'targetname': target1,
+            'angle': 180,
+            'room_idx': room1_idx
+        })
+        ### MODIFICATION: Add data for a visible pad in Room 2
+        self.teleporters.append({
+            'type': 'visual_pad',
+            'origin': (room2_trigger_x, room2_trigger_y, room2_trigger_z)
+        })
 
     def get_texture(self, texture_type, room_or_corridor=None):
         """Get a texture from the appropriate pool or from pre-assigned room textures
@@ -843,153 +1068,101 @@ class QuakeDungeonGenerator:
 
         return entities, entity_num
 
-    def _generate_room_walls(self, f, room):
-        """Generate fully enclosed perimeter walls for a room
-
-        Each room is a complete rectangular box with 4 walls extending to the actual ceiling height.
-        Where doors exist, openings are cut into the walls.
-        Walls extend above the normal ceiling height to enclose the door pocket space.
-
-        Args:
-            f: File handle to write to
-            room: Room dictionary with x, y, width, height
+    def _generate_dungeon_walls(self, f, room_map):
         """
-        # Calculate room bounds in Quake units
-        room_x1 = room['x'] * self.cell_size
-        room_y1 = room['y'] * self.cell_size
-        room_x2 = room_x1 + (room['width'] * self.cell_size)
-        room_y2 = room_y1 + (room['height'] * self.cell_size)
-
+        Generates walls on boundaries. If a door exists on a boundary, it
+        builds the wall pieces around the door's location, creating a frame.
+        This version clamps door coordinates AND adds volume checks to prevent
+        creating invalid zero-thickness brushes.
+        """
         wall_thick = self.wall_thickness
+        wall_top_z = self.ceiling_height + self.door_height + self.wall_thickness
 
-        # Find all doors on this room's perimeter walls (exact boundary matching)
-        room_doors = []
+        door_map = {tuple(sorted((d['room1_idx'], d['room2_idx']))): d for d in self.doors}
 
-        for door in self.doors:
-            door_x, door_y = door['position']
+        for y in range(self.grid_size):
+            for x in range(self.grid_size):
+                room_idx = room_map[y][x]
+                if room_idx == -1:
+                    continue
 
-            # Check if door is exactly on this room's perimeter boundaries
-            # Use small tolerance (1 unit) for floating point comparison
-            tolerance = 1
-            on_north = abs(door_y - room_y2) < tolerance
-            on_south = abs(door_y - room_y1) < tolerance
-            on_east = abs(door_x - room_x2) < tolerance
-            on_west = abs(door_x - room_x1) < tolerance
+                current_room = self.rooms[room_idx]
 
-            if (on_north or on_south or on_east or on_west):
-                room_doors.append({
-                    'x': door_x,
-                    'y': door_y,
-                    'direction': door['direction'],
-                    'on_wall': 'north' if on_north else 'south' if on_south else 'east' if on_east else 'west'
-                })
+                # --- Check North & South (Horizontal Walls) ---
+                for dy, direction in [(y - 1, 'north'), (y + 1, 'south')]:
+                    neighbor_idx = room_map[dy][x] if 0 <= dy < self.grid_size else -1
+                    if neighbor_idx == room_idx:
+                        continue
+                    
+                    door = door_map.get(tuple(sorted((room_idx, neighbor_idx))))
+                    
+                    cell_x1 = x * self.cell_size
+                    cell_x2 = cell_x1 + self.cell_size
+                    
+                    wall_y1 = y * self.cell_size if direction == 'north' else (y + 1) * self.cell_size
+                    wall_y2 = wall_y1 - wall_thick if direction == 'north' else wall_y1 + wall_thick
 
-        # Generate each of the 4 perimeter walls with openings for doors
-        # Walls extend to actual ceiling height (including pocket space)
-        door_height = 128
-        actual_ceiling = self.ceiling_height + door_height + wall_thick
+                    min_y, max_y = min(wall_y1, wall_y2), max(wall_y1, wall_y2)
 
-        # NORTH WALL (top edge, Y = room_y2)
-        north_doors = [d for d in room_doors if d['on_wall'] == 'north']
-        self._generate_wall_segments(f, room_x1, room_y2, room_x2, room_y2 + wall_thick,
-                                     north_doors, 'horizontal', room, actual_ceiling)
+                    if door:
+                        door_x1 = door['position'][0] - self.door_width / 2
+                        door_x2 = door['position'][0] + self.door_width / 2
+                        door_z2 = self.floor_height + self.door_height
+                        
+                        clamped_dx1 = max(cell_x1, door_x1)
+                        clamped_dx2 = min(cell_x2, door_x2)
 
-        # SOUTH WALL (bottom edge, Y = room_y1)
-        south_doors = [d for d in room_doors if d['on_wall'] == 'south']
-        self._generate_wall_segments(f, room_x1, room_y1 - wall_thick, room_x2, room_y1,
-                                     south_doors, 'horizontal', room, actual_ceiling)
+                        if clamped_dx1 < clamped_dx2:
+                            # --- FINAL FIX ---
+                            # Only write frame pieces if they have volume.
+                            if cell_x1 < clamped_dx1: # Left of door
+                                self._write_brush(f, cell_x1, min_y, self.floor_height, clamped_dx1, max_y, wall_top_z, 'wall', current_room)
+                            if clamped_dx2 < cell_x2: # Right of door
+                                self._write_brush(f, clamped_dx2, min_y, self.floor_height, cell_x2, max_y, wall_top_z, 'wall', current_room)
+                            
+                            # Above door (lintel)
+                            self._write_brush(f, clamped_dx1, min_y, door_z2, clamped_dx2, max_y, wall_top_z, 'wall', current_room)
+                            continue
 
-        # EAST WALL (right edge, X = room_x2)
-        east_doors = [d for d in room_doors if d['on_wall'] == 'east']
-        self._generate_wall_segments(f, room_x2, room_y1, room_x2 + wall_thick, room_y2,
-                                     east_doors, 'vertical', room, actual_ceiling)
+                    self._write_brush(f, cell_x1, min_y, self.floor_height, cell_x2, max_y, wall_top_z, 'wall', current_room)
 
-        # WEST WALL (left edge, X = room_x1)
-        west_doors = [d for d in room_doors if d['on_wall'] == 'west']
-        self._generate_wall_segments(f, room_x1 - wall_thick, room_y1, room_x1, room_y2,
-                                     west_doors, 'vertical', room, actual_ceiling)
+                # --- Check West & East (Vertical Walls) ---
+                for dx, direction in [(x - 1, 'west'), (x + 1, 'east')]:
+                    neighbor_idx = room_map[y][dx] if 0 <= dx < self.grid_size else -1
+                    if neighbor_idx == room_idx:
+                        continue
 
-    def _generate_wall_segments(self, f, x1, y1, x2, y2, doors, orientation, room, ceiling_height):
-        """Generate wall segments with openings for doors
+                    door = door_map.get(tuple(sorted((room_idx, neighbor_idx))))
 
-        Creates a complete wall with openings cut out where doors will be placed.
-        Each opening is door_opening_width wide and door_opening_height tall.
-        A small wall section is created above each opening (from opening_height to ceiling).
-        Walls extend to the actual ceiling height (including pocket space above normal ceiling).
+                    cell_y1 = y * self.cell_size
+                    cell_y2 = cell_y1 + self.cell_size
 
-        Args:
-            f: File handle
-            x1, y1, x2, y2: Wall bounds in Quake units
-            doors: List of doors on this wall (each with 'x', 'y', 'direction')
-            orientation: 'horizontal' (wall runs E-W) or 'vertical' (wall runs N-S)
-            room: Room dictionary for textures
-            ceiling_height: Actual ceiling height (including pocket space)
-        """
-        door_opening_width = 64
-        door_opening_height = 128
+                    wall_x1 = x * self.cell_size if direction == 'west' else (x + 1) * self.cell_size
+                    wall_x2 = wall_x1 - wall_thick if direction == 'west' else wall_x1 + wall_thick
+                    
+                    min_x, max_x = min(wall_x1, wall_x2), max(wall_x1, wall_x2)
+                    
+                    if door:
+                        door_y1 = door['position'][1] - self.door_width / 2
+                        door_y2 = door['position'][1] + self.door_width / 2
+                        door_z2 = self.floor_height + self.door_height
 
-        if orientation == 'horizontal':
-            # Wall runs along X axis (East-West)
-            if not doors:
-                # No doors on this wall - create a complete solid wall
-                self._write_brush(f, x1, y1, self.floor_height, x2, y2, ceiling_height, 'wall', room)
-            else:
-                # Doors present - create wall segments with openings
-                sorted_doors = sorted(doors, key=lambda d: d['x'])
+                        clamped_dy1 = max(cell_y1, door_y1)
+                        clamped_dy2 = min(cell_y2, door_y2)
+                        
+                        if clamped_dy1 < clamped_dy2:
+                            # --- FINAL FIX ---
+                            # Only write frame pieces if they have volume.
+                            if cell_y1 < clamped_dy1: # Below door
+                                self._write_brush(f, min_x, cell_y1, self.floor_height, max_x, clamped_dy1, wall_top_z, 'wall', current_room)
+                            if clamped_dy2 < cell_y2: # Above door
+                                self._write_brush(f, min_x, clamped_dy2, self.floor_height, max_x, cell_y2, wall_top_z, 'wall', current_room)
 
-                # Build wall in segments between and around doors
-                current_x = x1
-                for door in sorted_doors:
-                    door_start = door['x'] - door_opening_width / 2
-                    door_end = door['x'] + door_opening_width / 2
+                            # Lintel (side piece in this orientation)
+                            self._write_brush(f, min_x, clamped_dy1, door_z2, max_x, clamped_dy2, wall_top_z, 'wall', current_room)
+                            continue
 
-                    # Wall segment before door opening (if any)
-                    if current_x < door_start:
-                        self._write_brush(f, current_x, y1, self.floor_height,
-                                        door_start, y2, ceiling_height, 'wall', room)
-
-                    # Wall section above door opening (from door_height to ceiling)
-                    # This creates the "pocket" where door slides into
-                    self._write_brush(f, door_start, y1, self.floor_height + door_opening_height,
-                                    door_end, y2, ceiling_height, 'wall', room)
-
-                    current_x = door_end
-
-                # Final wall segment after last door (if any)
-                if current_x < x2:
-                    self._write_brush(f, current_x, y1, self.floor_height,
-                                    x2, y2, ceiling_height, 'wall', room)
-        else:
-            # Wall runs along Y axis (North-South)
-            if not doors:
-                # No doors on this wall - create a complete solid wall
-                self._write_brush(f, x1, y1, self.floor_height, x2, y2, ceiling_height, 'wall', room)
-            else:
-                # Doors present - create wall segments with openings
-                sorted_doors = sorted(doors, key=lambda d: d['y'])
-
-                # Build wall in segments between and around doors
-                current_y = y1
-                for door in sorted_doors:
-                    door_start = door['y'] - door_opening_width / 2
-                    door_end = door['y'] + door_opening_width / 2
-
-                    # Wall segment before door opening (if any)
-                    if current_y < door_start:
-                        self._write_brush(f, x1, current_y, self.floor_height,
-                                        x2, door_start, ceiling_height, 'wall', room)
-
-                    # Wall section above door opening (from door_height to ceiling)
-                    # This creates the "pocket" where door slides into
-                    self._write_brush(f, x1, door_start, self.floor_height + door_opening_height,
-                                    x2, door_end, ceiling_height, 'wall', room)
-
-                    current_y = door_end
-
-                # Final wall segment after last opening (if any)
-                if current_y < y2:
-                    self._write_brush(f, x1, current_y, self.floor_height,
-                                    x2, y2, ceiling_height, 'wall', room)
+                    self._write_brush(f, min_x, cell_y1, self.floor_height, max_x, cell_y2, wall_top_z, 'wall', current_room)
 
     def _build_theme_map(self):
         """Build a mapping of grid cells to themes
@@ -1009,26 +1182,10 @@ class QuakeDungeonGenerator:
         return theme_map
 
     def export_map(self, filename):
-        """Export the dungeon as a Quake .map file
-
-        Map Structure:
-        - Each room is a fully enclosed rectangular box with:
-          * Floor brush
-          * Ceiling brush
-          * 4 wall brushes (North, South, East, West)
-        - Walls have openings cut where doors connect adjacent rooms
-        - func_door entities are placed in doorway openings
-        - Empty grid cells are filled with solid blocks
-
-        Entity Structure:
-        - entity 0: worldspawn (contains all static brushes)
-        - entity 1: info_player_start (player spawn point)
-        - entity 2+: lights, items, monsters
-        - final entities: func_door entities for room connections
         """
-        # Build theme map for texture selection
-        theme_map = self._build_theme_map()
-
+        Export the dungeon as a Quake .map file using a consistent,
+        cell-by-cell generation method for all world geometry.
+        """
         with open(filename, 'w') as f:
             # Write header
             f.write('// Game: Quake\n')
@@ -1036,179 +1193,156 @@ class QuakeDungeonGenerator:
             f.write('// entity 0\n')
             f.write('{\n')
             f.write('"classname" "worldspawn"\n')
-            # Write WAD file reference if specified
             if self.wad_path:
                 f.write(f'"wad" "{self.wad_path}"\n')
             
-            # Calculate map bounds
-            map_size = self.grid_size * self.cell_size
-            padding = 64
-            wall_thick = 32
+            room_map = self._build_room_map()
             floor_thick = 32
+            
+            map_top_z = self.ceiling_height + self.door_height + self.wall_thickness
 
-            # Create outer boundary walls to seal the map
-            # Outer walls
-            # North wall
-            self._write_brush(f, -padding, -padding - wall_thick, -floor_thick,
-                            map_size + padding, -padding, self.ceiling_height + wall_thick, 'wall')
-
-            # South wall
-            self._write_brush(f, -padding, map_size + padding, -floor_thick,
-                            map_size + padding, map_size + padding + wall_thick,
-                            self.ceiling_height + wall_thick, 'wall')
-
-            # West wall
-            self._write_brush(f, -padding - wall_thick, -padding, -floor_thick,
-                            -padding, map_size + padding, self.ceiling_height + wall_thick, 'wall')
-
-            # East wall
-            self._write_brush(f, map_size + padding, -padding, -floor_thick,
-                            map_size + padding + wall_thick, map_size + padding,
-                            self.ceiling_height + wall_thick, 'wall')
-
-            # Write floor and ceiling for each room with its pre-assigned textures
-            # Ceilings need holes cut out above doors for vertical door pockets
-            door_width = 64
-            door_thickness = 8
-            door_height = 128
-
-            for room in self.rooms:
-                x1 = room['x'] * self.cell_size
-                y1 = room['y'] * self.cell_size
-                x2 = x1 + (room['width'] * self.cell_size)
-                y2 = y1 + (room['height'] * self.cell_size)
-
-                # Floor for this room (using room's specific textures) - full coverage
-                self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', room)
-
-                # Create ceiling ABOVE the door pocket space so doors can slide up
-                # Door height is 128, so pocket needs 128 units of clearance
-                # Ceiling should be at ceiling_height + door_height + small gap
-                ceiling_z = self.ceiling_height + door_height + wall_thick
-                self._write_brush(f, x1, y1, ceiling_z, x2, y2,
-                                ceiling_z + wall_thick, 'ceiling', room)
-
-            # Generate perimeter walls for each room with door openings
-            for room in self.rooms:
-                self._generate_room_walls(f, room)
-
-            # Create wall brushes for empty cells
+            # Create a robust, hollow box to seal the entire map from the void.
+            map_size = self.grid_size * self.cell_size
+            padding = 128
+            # Outer Floor
+            self._write_brush(f, -padding, -padding, -floor_thick - self.wall_thickness, map_size + padding, map_size + padding, -floor_thick, 'wall')
+            # Outer Ceiling
+            self._write_brush(f, -padding, -padding, map_top_z, map_size + padding, map_size + padding, map_top_z + self.wall_thickness, 'ceiling')
+            # Outer Walls
+            self._write_brush(f, -padding, -padding, -floor_thick, map_size + padding, -padding + self.wall_thickness, map_top_z, 'wall')
+            self._write_brush(f, -padding, map_size + padding - self.wall_thickness, -floor_thick, map_size + padding, map_size + padding, map_top_z, 'wall')
+            self._write_brush(f, -padding, -padding, -floor_thick, -padding + self.wall_thickness, map_size + padding, map_top_z, 'wall')
+            self._write_brush(f, map_size + padding - self.wall_thickness, -padding, -floor_thick, map_size + padding, map_size + padding, map_top_z, 'wall')
+            
+            # --- NEW CELL-BASED GEOMETRY GENERATION ---
+            # Step 1: Generate floors and ceilings for each individual cell.
             for y in range(self.grid_size):
                 for x in range(self.grid_size):
-                    if not self.grid[y][x]:  # Empty space, fill with walls
-                        x1 = x * self.cell_size
-                        y1 = y * self.cell_size
-                        x2 = x1 + self.cell_size
-                        y2 = y1 + self.cell_size
+                    room_idx = room_map[y][x]
+                    if room_idx == -1:
+                        continue # Skip empty cells
 
-                        # Fill this cell with a solid block (no specific theme)
-                        self._write_brush(f, x1, y1, -floor_thick, x2, y2,
-                                        self.ceiling_height + wall_thick, 'wall')
+                    room = self.rooms[room_idx]
+                    
+                    # Calculate coordinates for this specific cell
+                    x1 = x * self.cell_size
+                    y1 = y * self.cell_size
+                    x2 = x1 + self.cell_size
+                    y2 = y1 + self.cell_size
+
+                    # Write the floor brush for this cell
+                    self._write_brush(f, x1, y1, -floor_thick, x2, y2, self.floor_height, 'floor', room)
+                    
+                    # Write the ceiling brush for this cell
+                    ceiling_z_bottom = self.ceiling_height + self.door_height
+                    ceiling_z_top = ceiling_z_bottom + self.wall_thickness
+                    self._write_brush(f, x1, y1, ceiling_z_bottom, x2, y2, ceiling_z_top, 'ceiling', room)
+
+
+            # Step 2: Generate walls on boundaries. This function is already cell-based.
+            self._generate_dungeon_walls(f, room_map)
+
+            # Generate visual teleporter pads (if any)
+            if self.teleporters:
+                teleporter_texture = '*teleport'
+                pad_size = 64
+                pad_thickness = 8
+                for teleporter in self.teleporters:
+                    if teleporter['type'] == 'visual_pad':
+                        x, y, z = teleporter['origin']
+                        x1, y1, z1 = x - pad_size / 2, y - pad_size / 2, z
+                        x2, y2, z2 = x + pad_size / 2, y + pad_size / 2, z + pad_thickness
+                        self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, teleporter_texture)
             
             f.write('}\n')
-            
-            # Add player start in first room
-            if self.rooms:
-                room = self.rooms[0]
-                x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) // 2
-                y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) // 2
-                z = self.floor_height + 24
-                
-                f.write('// entity 1\n')
-                f.write('{\n')
-                f.write('"classname" "info_player_start"\n')
-                f.write(f'"origin" "{x} {y} {z}"\n')
-                f.write('"angle" "0"\n')
-                f.write('}\n')
-            
-            # Add lights and entities to each room
-            entity_num = 2
-            for room in self.rooms:
-                # Add light in center of room
-                x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) // 2
-                y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) // 2
-                z = self.ceiling_height - 32
 
-                f.write(f'// entity {entity_num}\n')
-                f.write('{\n')
-                f.write('"classname" "light"\n')
-                f.write(f'"origin" "{x} {y} {z}"\n')
-                f.write('"light" "800"\n')
-                f.write('}\n')
+            # --- ENTITY GENERATION (No changes needed here) ---
+            entity_num = 1
+            if self.rooms:
+                # Player Start
+                spawn_room = self.rooms[0] # Spawn in the first generated room for consistency
+                room_center_x = (spawn_room['x'] + spawn_room['width'] / 2) * self.cell_size
+                room_center_y = (spawn_room['y'] + spawn_room['height'] / 2) * self.cell_size
+                z = self.floor_height + 24
+                angle = random.choice([0, 90, 180, 270])
+                f.write('// entity 1\n{\n')
+                f.write('"classname" "info_player_start"\n')
+                f.write(f'"origin" "{room_center_x} {room_center_y} {z}"\n')
+                f.write(f'"angle" "{angle}"\n}}\n')
                 entity_num += 1
 
-                # Spawn entities in room if enabled
+            # Lights and spawned items/monsters
+            for room in self.rooms:
+                x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) / 2
+                y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) / 2
+                z = self.ceiling_height - 32
+                f.write(f'// entity {entity_num}\n{{\n')
+                f.write('"classname" "light"\n')
+                f.write(f'"origin" "{x} {y} {z}"\n')
+                f.write('"light" "600"\n}\n')
+                entity_num += 1
+
                 if self.spawn_entities:
                     room_entities, entity_num = self._spawn_room_entities(room, entity_num)
                     for entity in room_entities:
-                        f.write(f'// entity {entity["num"]}\n')
-                        f.write('{\n')
+                        f.write(f'// entity {entity["num"]}\n{{\n')
                         f.write(f'"classname" "{entity["classname"]}"\n')
-                        f.write(f'"origin" "{entity["origin"]}"\n')
-                        f.write('}\n')
-
-            # Add door entities between adjacent rooms
+                        f.write(f'"origin" "{entity["origin"]}"\n}}\n')
+            
+            # Teleporter Entities
+            for teleporter in self.teleporters:
+                if teleporter['type'] == 'trigger':
+                    f.write(f'// entity {entity_num}\n{{\n')
+                    f.write('"classname" "trigger_teleport"\n')
+                    f.write(f'"target" "{teleporter["target"]}"\n')
+                    x, y, z = teleporter['origin']
+                    pad_size, pad_height = 64, 64
+                    x1, x2 = x - pad_size / 2, x + pad_size / 2
+                    y1, y2 = y - pad_size / 2, y + pad_size / 2
+                    z1, z2 = z, z + pad_height
+                    self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, 'trigger')
+                    f.write('}\n')
+                    entity_num += 1
+                elif teleporter['type'] == 'destination':
+                    f.write(f'// entity {entity_num}\n{{\n')
+                    f.write('"classname" "info_teleport_destination"\n')
+                    f.write(f'"targetname" "{teleporter["targetname"]}"\n')
+                    x, y, z = teleporter['origin']
+                    f.write(f'"origin" "{x} {y} {z}"\n')
+                    f.write(f'"angle" "{teleporter["angle"]}"\n}}\n')
+                    entity_num += 1
+            
+            # Door Entities
             for door in self.doors:
-                f.write(f'// entity {entity_num}\n')
-                f.write('{\n')
+                f.write(f'// entity {entity_num}\n{{\n')
                 f.write('"classname" "func_door"\n')
                 f.write(f'"angle" "{door["angle"]}"\n')
-                f.write('"sounds" "2"\n')  # Medieval door sound
-                f.write('"wait" "3"\n')  # Wait 3 seconds before closing
-                f.write('"lip" "8"\n')  # How much of door stays visible when open
-
-                # Create door brush geometry
-                # Door dimensions: 64 wide x 8 thick x 128 tall
-                door_width = 64
-                door_thickness = 8
-                door_height = 128
-
-                # Get door position
+                f.write('"sounds" "2"\n')
+                f.write('"wait" "3"\n')
+                f.write('"lip" "8"\n')
                 door_x, door_y = door['position']
-                door_z_base = self.floor_height
-
-                # Position door brush to be PARALLEL to the wall (filling the opening)
-                # The door should be flush with the wall, not sticking out
-                if door["direction"] == 'east' or door["direction"] == 'west':
-                    # Door is on a vertical wall (east or west wall of a room)
-                    # Door should be thin in X direction (perpendicular to wall)
-                    # and wide in Y direction (parallel to wall, filling the opening)
-                    x1 = door_x - door_thickness / 2
-                    x2 = door_x + door_thickness / 2
-                    y1 = door_y - door_width / 2
-                    y2 = door_y + door_width / 2
-                else:  # north or south
-                    # Door is on a horizontal wall (north or south wall of a room)
-                    # Door should be wide in X direction (parallel to wall, filling the opening)
-                    # and thin in Y direction (perpendicular to wall)
-                    x1 = door_x - door_width / 2
-                    x2 = door_x + door_width / 2
-                    y1 = door_y - door_thickness / 2
-                    y2 = door_y + door_thickness / 2
-
-                z1 = door_z_base
-                z2 = door_z_base + door_height
-
-                # Write door brush
-                door_texture = door["texture"]
-                f.write('{\n')
-                # All faces use door texture
-                # West face
-                f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) ( {x1} {y1} {z1+1} ) {door_texture} 0 0 0 1 1\n')
-                # East face
-                f.write(f'( {x2} {y1} {z1} ) ( {x2} {y1} {z1+1} ) ( {x2} {y1+1} {z1} ) {door_texture} 0 0 0 1 1\n')
-                # South face
-                f.write(f'( {x1} {y1} {z1} ) ( {x1} {y1} {z1+1} ) ( {x1+1} {y1} {z1} ) {door_texture} 0 0 0 1 1\n')
-                # North face
-                f.write(f'( {x1} {y2} {z1} ) ( {x1+1} {y2} {z1} ) ( {x1} {y2} {z1+1} ) {door_texture} 0 0 0 1 1\n')
-                # Bottom face
-                f.write(f'( {x1} {y1} {z1} ) ( {x1+1} {y1} {z1} ) ( {x1} {y1+1} {z1} ) {door_texture} 0 0 0 1 1\n')
-                # Top face
-                f.write(f'( {x1} {y1} {z2} ) ( {x1} {y1+1} {z2} ) ( {x1+1} {y1} {z2} ) {door_texture} 0 0 0 1 1\n')
-                f.write('}\n')
-
+                if door["direction"] in ['east', 'west']:
+                    x1, x2 = door_x - self.door_thickness / 2, door_x + self.door_thickness / 2
+                    y1, y2 = door_y - self.door_width / 2, door_y + self.door_width / 2
+                else:
+                    x1, x2 = door_x - self.door_width / 2, door_x + self.door_width / 2
+                    y1, y2 = door_y - self.door_thickness / 2, door_y + self.door_thickness / 2
+                z1 = self.floor_height
+                z2 = z1 + self.door_height
+                self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, door["texture"])
                 f.write('}\n')
                 entity_num += 1
+
+    def _build_room_map(self):
+        """Build a 2D grid mapping cell coordinates to the index of the room occupying it."""
+        # Initialize grid with -1 (empty space)
+        room_map = [[-1 for _ in range(self.grid_size)] for _ in range(self.grid_size)]
+        for i, room in enumerate(self.rooms):
+            for dy in range(room['height']):
+                for dx in range(room['width']):
+                    if 0 <= room['y'] + dy < self.grid_size and 0 <= room['x'] + dx < self.grid_size:
+                        room_map[room['y'] + dy][room['x'] + dx] = i
+        return room_map
 
 
     def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture_type, room_or_corridor=None):
@@ -1279,6 +1413,11 @@ class QuakeDungeonGenerator:
                 print('#' if self.grid[y][x] else '.', end='')
             print()
         print(f"\nGenerated {len(self.rooms)} rooms and {len(self.doors)} doors connecting adjacent rooms")
+
+        # Show teleporter count
+        num_teleporter_pairs = len(self.teleporters) // 4  # 4 entities per pair (2 triggers + 2 destinations)
+        if num_teleporter_pairs > 0:
+            print(f"Added {num_teleporter_pairs} teleporter pair(s) to connect disconnected room groups")
 
         # Print theme assignments
         if self.texture_variety and self.rooms:
