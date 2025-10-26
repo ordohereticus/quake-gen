@@ -707,6 +707,7 @@ class QuakeDungeonGenerator:
                     room2 = self.rooms[j]
 
                     # Position door at the exact wall boundary between rooms
+                    # The angle controls which direction the door slides when opening
                     if adjacency['direction'] == 'east':
                         # Door on east wall of room1 (vertical wall)
                         door_x = (room1['x'] + room1['width']) * self.cell_size
@@ -714,16 +715,16 @@ class QuakeDungeonGenerator:
                         y_overlap_start = max(room1['y'], room2['y'])
                         y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
                         door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
-                        # Door moves north (into room1) or south
-                        door_angle = 90  # Move north
+                        # Door slides east (into room2)
+                        door_angle = 0
                     elif adjacency['direction'] == 'west':
                         # Door on west wall of room1 (vertical wall)
                         door_x = room1['x'] * self.cell_size
                         y_overlap_start = max(room1['y'], room2['y'])
                         y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
                         door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
-                        # Door moves north or south
-                        door_angle = 270  # Move south
+                        # Door slides west (into room2)
+                        door_angle = 180
                     elif adjacency['direction'] == 'south':
                         # Door on south wall of room1 (horizontal wall)
                         door_y = (room1['y'] + room1['height']) * self.cell_size
@@ -731,16 +732,16 @@ class QuakeDungeonGenerator:
                         x_overlap_start = max(room1['x'], room2['x'])
                         x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
                         door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
-                        # Door moves east or west
-                        door_angle = 0  # Move east
+                        # Door slides south (into room2)
+                        door_angle = 270
                     else:  # north
                         # Door on north wall of room1 (horizontal wall)
                         door_y = room1['y'] * self.cell_size
                         x_overlap_start = max(room1['x'], room2['x'])
                         x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
                         door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
-                        # Door moves east or west
-                        door_angle = 180  # Move west
+                        # Door slides north (into room2)
+                        door_angle = 90
 
                     # Get door texture
                     door_texture = random.choice(self.texture_pools['door'])
@@ -1140,7 +1141,6 @@ class QuakeDungeonGenerator:
                 f.write('{\n')
                 f.write('"classname" "func_door"\n')
                 f.write(f'"angle" "{door["angle"]}"\n')
-                f.write('"speed" "100"\n')
                 f.write('"sounds" "2"\n')  # Medieval door sound
                 f.write('"wait" "3"\n')  # Wait 3 seconds before closing
                 f.write('"lip" "8"\n')  # How much of door stays visible when open
