@@ -824,7 +824,10 @@ class QuakeDungeonGenerator:
         return entities, entity_num
 
     def _generate_room_walls(self, f, room):
-        """Generate perimeter walls for a room with openings for doors
+        """Generate fully enclosed perimeter walls for a room
+
+        Each room is a complete rectangular box with 4 walls.
+        Where doors exist, openings are cut into the walls.
 
         Args:
             f: File handle to write to
@@ -837,19 +840,15 @@ class QuakeDungeonGenerator:
         room_y2 = room_y1 + (room['height'] * self.cell_size)
 
         wall_thick = self.wall_thickness
-        door_opening_width = 64  # Width of door opening
-        door_opening_height = 128  # Height of door opening
 
-        # Find all doors associated with this room
+        # Find all doors on this room's perimeter
         room_doors = []
         for door in self.doors:
             origin_parts = door["origin"].split()
             door_x = float(origin_parts[0])
             door_y = float(origin_parts[1])
 
-            # Check if door is on this room's perimeter
-            # Allow some tolerance for floating point comparisons
-            tolerance = 1
+            # Check if door is on this room's perimeter walls
             on_north = abs(door_y - room_y2) < self.cell_size / 2
             on_south = abs(door_y - room_y1) < self.cell_size / 2
             on_east = abs(door_x - room_x2) < self.cell_size / 2
@@ -862,23 +861,24 @@ class QuakeDungeonGenerator:
                     'direction': door['direction']
                 })
 
-        # Generate each wall with openings for doors
-        # NORTH WALL (top, along X axis)
+        # Generate each of the 4 perimeter walls with openings for doors
+
+        # NORTH WALL (top edge)
         north_doors = [d for d in room_doors if abs(d['y'] - room_y2) < self.cell_size / 2]
         self._generate_wall_segments(f, room_x1, room_y2, room_x2, room_y2 + wall_thick,
                                      north_doors, 'horizontal', room)
 
-        # SOUTH WALL (bottom, along X axis)
+        # SOUTH WALL (bottom edge)
         south_doors = [d for d in room_doors if abs(d['y'] - room_y1) < self.cell_size / 2]
         self._generate_wall_segments(f, room_x1, room_y1 - wall_thick, room_x2, room_y1,
                                      south_doors, 'horizontal', room)
 
-        # EAST WALL (right, along Y axis)
+        # EAST WALL (right edge)
         east_doors = [d for d in room_doors if abs(d['x'] - room_x2) < self.cell_size / 2]
         self._generate_wall_segments(f, room_x2, room_y1, room_x2 + wall_thick, room_y2,
                                      east_doors, 'vertical', room)
 
-        # WEST WALL (left, along Y axis)
+        # WEST WALL (left edge)
         west_doors = [d for d in room_doors if abs(d['x'] - room_x1) < self.cell_size / 2]
         self._generate_wall_segments(f, room_x1 - wall_thick, room_y1, room_x1, room_y2,
                                      west_doors, 'vertical', room)
@@ -886,73 +886,77 @@ class QuakeDungeonGenerator:
     def _generate_wall_segments(self, f, x1, y1, x2, y2, doors, orientation, room):
         """Generate wall segments with openings for doors
 
+        Creates a complete wall with openings cut out where doors will be placed.
+        Each opening is door_opening_width wide and door_opening_height tall.
+        A small wall section is created above each opening (from opening_height to ceiling).
+
         Args:
             f: File handle
-            x1, y1, x2, y2: Wall bounds
-            doors: List of doors on this wall
-            orientation: 'horizontal' or 'vertical'
+            x1, y1, x2, y2: Wall bounds in Quake units
+            doors: List of doors on this wall (each with 'x', 'y', 'direction')
+            orientation: 'horizontal' (wall runs E-W) or 'vertical' (wall runs N-S)
             room: Room dictionary for textures
         """
         door_opening_width = 64
         door_opening_height = 128
 
         if orientation == 'horizontal':
-            # Wall runs along X axis
+            # Wall runs along X axis (East-West)
             if not doors:
-                # No doors, create full wall
+                # No doors on this wall - create a complete solid wall
                 self._write_brush(f, x1, y1, self.floor_height, x2, y2, self.ceiling_height, 'wall', room)
             else:
-                # Sort doors by X position
+                # Doors present - create wall segments with openings
                 sorted_doors = sorted(doors, key=lambda d: d['x'])
 
-                # Create wall segments between doors
+                # Build wall in segments between and around doors
                 current_x = x1
                 for door in sorted_doors:
                     door_start = door['x'] - door_opening_width / 2
                     door_end = door['x'] + door_opening_width / 2
 
-                    # Wall segment before door
+                    # Wall segment before door opening (if any)
                     if current_x < door_start:
                         self._write_brush(f, current_x, y1, self.floor_height,
                                         door_start, y2, self.ceiling_height, 'wall', room)
 
-                    # Create wall above door opening
+                    # Wall section above door opening (from door_height to ceiling)
                     self._write_brush(f, door_start, y1, self.floor_height + door_opening_height,
                                     door_end, y2, self.ceiling_height, 'wall', room)
 
                     current_x = door_end
 
-                # Final wall segment after last door
+                # Final wall segment after last door (if any)
                 if current_x < x2:
                     self._write_brush(f, current_x, y1, self.floor_height,
                                     x2, y2, self.ceiling_height, 'wall', room)
         else:
-            # Wall runs along Y axis
+            # Wall runs along Y axis (North-South)
             if not doors:
-                # No doors, create full wall
+                # No doors on this wall - create a complete solid wall
                 self._write_brush(f, x1, y1, self.floor_height, x2, y2, self.ceiling_height, 'wall', room)
             else:
-                # Sort doors by Y position
+                # Doors present - create wall segments with openings
                 sorted_doors = sorted(doors, key=lambda d: d['y'])
 
-                # Create wall segments between doors
+                # Build wall in segments between and around doors
                 current_y = y1
                 for door in sorted_doors:
                     door_start = door['y'] - door_opening_width / 2
                     door_end = door['y'] + door_opening_width / 2
 
-                    # Wall segment before door
+                    # Wall segment before door opening (if any)
                     if current_y < door_start:
                         self._write_brush(f, x1, current_y, self.floor_height,
                                         x2, door_start, self.ceiling_height, 'wall', room)
 
-                    # Create wall above door opening
+                    # Wall section above door opening (from door_height to ceiling)
                     self._write_brush(f, x1, door_start, self.floor_height + door_opening_height,
                                     x2, door_end, self.ceiling_height, 'wall', room)
 
                     current_y = door_end
 
-                # Final wall segment after last door
+                # Final wall segment after last door (if any)
                 if current_y < y2:
                     self._write_brush(f, x1, current_y, self.floor_height,
                                     x2, y2, self.ceiling_height, 'wall', room)
@@ -975,7 +979,23 @@ class QuakeDungeonGenerator:
         return theme_map
 
     def export_map(self, filename):
-        """Export the dungeon as a Quake .map file"""
+        """Export the dungeon as a Quake .map file
+
+        Map Structure:
+        - Each room is a fully enclosed rectangular box with:
+          * Floor brush
+          * Ceiling brush
+          * 4 wall brushes (North, South, East, West)
+        - Walls have openings cut where doors connect adjacent rooms
+        - func_door entities are placed in doorway openings
+        - Empty grid cells are filled with solid blocks
+
+        Entity Structure:
+        - entity 0: worldspawn (contains all static brushes)
+        - entity 1: info_player_start (player spawn point)
+        - entity 2+: lights, items, monsters
+        - final entities: func_door entities for room connections
+        """
         # Build theme map for texture selection
         theme_map = self._build_theme_map()
 
