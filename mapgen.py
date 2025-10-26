@@ -695,12 +695,121 @@ class QuakeDungeonGenerator:
 
         return None
 
+    def _check_door_clearance(self, door_x, door_y, direction, room1, room2):
+        """Check if a door has clear space on both sides for passage
+
+        Args:
+            door_x, door_y: Door position in Quake units
+            direction: Door direction ('north', 'south', 'east', 'west')
+            room1, room2: Room dictionaries
+
+        Returns:
+            True if door has clear passage on both sides, False otherwise
+        """
+        # Convert door position to grid coordinates
+        door_grid_x = door_x / self.cell_size
+        door_grid_y = door_y / self.cell_size
+
+        # Define clearance distance in grid cells (check 1 cell deep into each room)
+        clearance = 1.0
+
+        # Check clearance on both sides based on door direction
+        if direction == 'east' or direction == 'west':
+            # Vertical wall - check clearance in X direction (left and right of door)
+            if direction == 'east':
+                # Door on east wall of room1, check west side of room1 and east side of room2
+                check_x1 = door_grid_x - clearance  # Inside room1
+                check_x2 = door_grid_x + clearance  # Inside room2
+            else:  # west
+                # Door on west wall of room1, check east side of room1 and west side of room2
+                check_x1 = door_grid_x + clearance  # Inside room1
+                check_x2 = door_grid_x - clearance  # Inside room2
+
+            # Check if these positions are inside their respective rooms and not blocked
+            # Check room1 side
+            if not (room1['x'] <= check_x1 < room1['x'] + room1['width'] and
+                    room1['y'] <= door_grid_y < room1['y'] + room1['height']):
+                return False
+
+            # Check room2 side
+            if not (room2['x'] <= check_x2 < room2['x'] + room2['width'] and
+                    room2['y'] <= door_grid_y < room2['y'] + room2['height']):
+                return False
+
+        else:  # north or south
+            # Horizontal wall - check clearance in Y direction (above and below door)
+            if direction == 'south':
+                # Door on south wall of room1, check north side of room1 and south side of room2
+                check_y1 = door_grid_y - clearance  # Inside room1
+                check_y2 = door_grid_y + clearance  # Inside room2
+            else:  # north
+                # Door on north wall of room1, check south side of room1 and north side of room2
+                check_y1 = door_grid_y + clearance  # Inside room1
+                check_y2 = door_grid_y - clearance  # Inside room2
+
+            # Check if these positions are inside their respective rooms and not blocked
+            # Check room1 side
+            if not (room1['x'] <= door_grid_x < room1['x'] + room1['width'] and
+                    room1['y'] <= check_y1 < room1['y'] + room1['height']):
+                return False
+
+            # Check room2 side
+            if not (room2['x'] <= door_grid_x < room2['x'] + room2['width'] and
+                    room2['y'] <= check_y2 < room2['y'] + room2['height']):
+                return False
+
+        # Check if other rooms' walls would block the doorway
+        # A door needs clearance around its opening (64 units wide)
+        door_half_width = 32 / self.cell_size  # Half of door width in grid units
+
+        for other_room in self.rooms:
+            if other_room is room1 or other_room is room2:
+                continue
+
+            # Check if the other room would block the doorway area
+            if direction == 'east' or direction == 'west':
+                # Check if other room intersects the doorway in the Y axis
+                door_y_min = door_grid_y - door_half_width
+                door_y_max = door_grid_y + door_half_width
+
+                # If other room overlaps with door opening area
+                if not (other_room['y'] + other_room['height'] <= door_y_min or
+                        other_room['y'] >= door_y_max):
+                    # Check if this room's walls would block passage
+                    if direction == 'east':
+                        # Check if room wall is in the doorway
+                        if (other_room['x'] <= door_grid_x < other_room['x'] + other_room['width']):
+                            return False
+                    else:  # west
+                        if (other_room['x'] <= door_grid_x < other_room['x'] + other_room['width']):
+                            return False
+            else:  # north or south
+                # Check if other room intersects the doorway in the X axis
+                door_x_min = door_grid_x - door_half_width
+                door_x_max = door_grid_x + door_half_width
+
+                # If other room overlaps with door opening area
+                if not (other_room['x'] + other_room['width'] <= door_x_min or
+                        other_room['x'] >= door_x_max):
+                    # Check if this room's walls would block passage
+                    if direction == 'south':
+                        # Check if room wall is in the doorway
+                        if (other_room['y'] <= door_grid_y < other_room['y'] + other_room['height']):
+                            return False
+                    else:  # north
+                        if (other_room['y'] <= door_grid_y < other_room['y'] + other_room['height']):
+                            return False
+
+        return True
+
     def _create_doors(self):
         """Create doors between adjacent rooms
 
         Doors are positioned exactly at the boundary between two rooms.
         The angle controls the direction the door moves when opening.
+        Only places doors where there is clear passage on both sides.
         """
+        skipped_doors = 0
         # Check each pair of rooms to see if they're adjacent
         for i in range(len(self.rooms)):
             for j in range(i + 1, len(self.rooms)):
@@ -739,6 +848,11 @@ class QuakeDungeonGenerator:
                         x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
                         door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
 
+                    # Check if door has clear passage on both sides
+                    if not self._check_door_clearance(door_x, door_y, adjacency['direction'], room1, room2):
+                        skipped_doors += 1
+                        continue  # Skip this door - it's blocked
+
                     # All doors slide upward
                     door_angle = -1
 
@@ -754,6 +868,9 @@ class QuakeDungeonGenerator:
                         'room1_idx': i,
                         'room2_idx': j
                     })
+
+        if skipped_doors > 0:
+            print(f"Skipped {skipped_doors} blocked door(s) at corner intersections")
 
     def _ensure_connectivity(self):
         """Check if all rooms are connected, and add teleporters if not
