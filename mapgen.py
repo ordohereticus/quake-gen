@@ -802,6 +802,49 @@ class QuakeDungeonGenerator:
 
         return True
 
+    def _is_door_at_corner_intersection(self, door_x, door_y):
+        """Check if a door is at a corner where 3 or more rooms meet
+
+        Args:
+            door_x, door_y: Door position in Quake units
+
+        Returns:
+            True if 3+ rooms meet at this point, False otherwise
+        """
+        # Convert to grid coordinates
+        door_grid_x = door_x / self.cell_size
+        door_grid_y = door_y / self.cell_size
+
+        # Find the nearest grid corner point (integer coordinates)
+        corner_x = round(door_grid_x)
+        corner_y = round(door_grid_y)
+
+        # Check if the door is close to a grid corner (within 0.1 cells)
+        tolerance = 0.1
+        if abs(door_grid_x - corner_x) > tolerance and abs(door_grid_y - corner_y) > tolerance:
+            return False  # Not at a corner
+
+        # Count how many rooms have a corner at or very near this grid point
+        rooms_at_corner = 0
+        corner_tolerance = 0.01  # Very small tolerance for exact corner matching
+
+        for room in self.rooms:
+            # Check all 4 corners of this room
+            room_corners = [
+                (room['x'], room['y']),  # Top-left
+                (room['x'] + room['width'], room['y']),  # Top-right
+                (room['x'], room['y'] + room['height']),  # Bottom-left
+                (room['x'] + room['width'], room['y'] + room['height'])  # Bottom-right
+            ]
+
+            for rx, ry in room_corners:
+                if abs(rx - corner_x) < corner_tolerance and abs(ry - corner_y) < corner_tolerance:
+                    rooms_at_corner += 1
+                    break  # Only count this room once
+
+        # If 3 or more rooms meet at this corner, the door would be blocked
+        return rooms_at_corner >= 3
+
     def _create_doors(self):
         """Create doors between adjacent rooms
 
@@ -847,6 +890,11 @@ class QuakeDungeonGenerator:
                         x_overlap_start = max(room1['x'], room2['x'])
                         x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
                         door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
+
+                    # Check if door is at a corner where 3+ rooms meet
+                    if self._is_door_at_corner_intersection(door_x, door_y):
+                        skipped_doors += 1
+                        continue  # Skip this door - at corner intersection
 
                     # Check if door has clear passage on both sides
                     if not self._check_door_clearance(door_x, door_y, adjacency['direction'], room1, room2):
@@ -1366,23 +1414,43 @@ class QuakeDungeonGenerator:
                                         self.ceiling_height + wall_thick, 'wall')
             
             f.write('}\n')
-            
-            # Add player start in first room
+
+            # Add player start in a random room (entity 1)
+            entity_num = 1
             if self.rooms:
-                room = self.rooms[0]
-                x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) // 2
-                y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) // 2
+                # Pick a random room for player spawn
+                spawn_room = random.choice(self.rooms)
+
+                # Calculate room bounds in Quake units
+                room_x1 = spawn_room['x'] * self.cell_size
+                room_y1 = spawn_room['y'] * self.cell_size
+                room_x2 = room_x1 + (spawn_room['width'] * self.cell_size)
+                room_y2 = room_y1 + (spawn_room['height'] * self.cell_size)
+
+                # Add padding from walls
+                padding = 64
+                room_x1 += padding
+                room_y1 += padding
+                room_x2 -= padding
+                room_y2 -= padding
+
+                # Random position within room bounds
+                x = random.randint(int(room_x1), int(room_x2))
+                y = random.randint(int(room_y1), int(room_y2))
                 z = self.floor_height + 24
-                
+
+                # Random facing direction
+                angle = random.choice([0, 90, 180, 270])
+
                 f.write('// entity 1\n')
                 f.write('{\n')
                 f.write('"classname" "info_player_start"\n')
                 f.write(f'"origin" "{x} {y} {z}"\n')
-                f.write('"angle" "0"\n')
+                f.write(f'"angle" "{angle}"\n')
                 f.write('}\n')
-            
+                entity_num += 1
+
             # Add lights and entities to each room
-            entity_num = 2
             for room in self.rooms:
                 # Add light in center of room
                 x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) // 2
