@@ -692,40 +692,60 @@ class QuakeDungeonGenerator:
         return None
 
     def _create_doors(self):
-        """Create doors between adjacent rooms"""
+        """Create doors between adjacent rooms
+
+        Doors are positioned exactly at the boundary between two rooms.
+        The angle controls the direction the door moves when opening.
+        """
         # Check each pair of rooms to see if they're adjacent
         for i in range(len(self.rooms)):
             for j in range(i + 1, len(self.rooms)):
                 adjacency = self._find_adjacent_rooms(self.rooms[i], self.rooms[j])
                 if adjacency:
-                    # Rooms are adjacent, create a door
-                    grid_x, grid_y = adjacency['position']
+                    # Get the boundary position and calculate door center
+                    room1 = self.rooms[i]
+                    room2 = self.rooms[j]
 
-                    # Convert to Quake units
-                    # Door is centered in the cell
-                    door_x = (grid_x * self.cell_size) + (self.cell_size // 2)
-                    door_y = (grid_y * self.cell_size) + (self.cell_size // 2)
-                    door_z = self.floor_height + 64  # Door height from floor
+                    # Position door at the exact wall boundary between rooms
+                    # All doors slide UPWARD (angle -1) into a pocket above them
+                    if adjacency['direction'] == 'east':
+                        # Door on east wall of room1 (vertical wall)
+                        door_x = (room1['x'] + room1['width']) * self.cell_size
+                        # Center door in the overlapping region
+                        y_overlap_start = max(room1['y'], room2['y'])
+                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+                        door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
+                    elif adjacency['direction'] == 'west':
+                        # Door on west wall of room1 (vertical wall)
+                        door_x = room1['x'] * self.cell_size
+                        y_overlap_start = max(room1['y'], room2['y'])
+                        y_overlap_end = min(room1['y'] + room1['height'], room2['y'] + room2['height'])
+                        door_y = ((y_overlap_start + y_overlap_end) / 2) * self.cell_size
+                    elif adjacency['direction'] == 'south':
+                        # Door on south wall of room1 (horizontal wall)
+                        door_y = (room1['y'] + room1['height']) * self.cell_size
+                        # Center door in the overlapping region
+                        x_overlap_start = max(room1['x'], room2['x'])
+                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+                        door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
+                    else:  # north
+                        # Door on north wall of room1 (horizontal wall)
+                        door_y = room1['y'] * self.cell_size
+                        x_overlap_start = max(room1['x'], room2['x'])
+                        x_overlap_end = min(room1['x'] + room1['width'], room2['x'] + room2['width'])
+                        door_x = ((x_overlap_start + x_overlap_end) / 2) * self.cell_size
 
-                    # Calculate angle based on direction
-                    # In Quake: 0 = East, 90 = North, 180 = West, 270 = South
-                    angle_map = {
-                        'east': 0,
-                        'north': 90,
-                        'west': 180,
-                        'south': 270
-                    }
-
-                    door_angle = angle_map.get(adjacency['direction'], 0)
+                    # All doors slide upward
+                    door_angle = -1
 
                     # Get door texture
                     door_texture = random.choice(self.texture_pools['door'])
 
                     self.doors.append({
-                        'origin': f"{door_x} {door_y} {door_z}",
+                        'origin': f"{door_x} {door_y} {self.floor_height + 64}",
                         'angle': door_angle,
                         'texture': door_texture,
-                        'grid_pos': (grid_x, grid_y),
+                        'position': (door_x, door_y),
                         'direction': adjacency['direction']
                     })
 
@@ -826,8 +846,9 @@ class QuakeDungeonGenerator:
     def _generate_room_walls(self, f, room):
         """Generate fully enclosed perimeter walls for a room
 
-        Each room is a complete rectangular box with 4 walls.
+        Each room is a complete rectangular box with 4 walls extending to the actual ceiling height.
         Where doors exist, openings are cut into the walls.
+        Walls extend above the normal ceiling height to enclose the door pocket space.
 
         Args:
             f: File handle to write to
@@ -841,54 +862,60 @@ class QuakeDungeonGenerator:
 
         wall_thick = self.wall_thickness
 
-        # Find all doors on this room's perimeter
+        # Find all doors on this room's perimeter walls (exact boundary matching)
         room_doors = []
-        for door in self.doors:
-            origin_parts = door["origin"].split()
-            door_x = float(origin_parts[0])
-            door_y = float(origin_parts[1])
 
-            # Check if door is on this room's perimeter walls
-            on_north = abs(door_y - room_y2) < self.cell_size / 2
-            on_south = abs(door_y - room_y1) < self.cell_size / 2
-            on_east = abs(door_x - room_x2) < self.cell_size / 2
-            on_west = abs(door_x - room_x1) < self.cell_size / 2
+        for door in self.doors:
+            door_x, door_y = door['position']
+
+            # Check if door is exactly on this room's perimeter boundaries
+            # Use small tolerance (1 unit) for floating point comparison
+            tolerance = 1
+            on_north = abs(door_y - room_y2) < tolerance
+            on_south = abs(door_y - room_y1) < tolerance
+            on_east = abs(door_x - room_x2) < tolerance
+            on_west = abs(door_x - room_x1) < tolerance
 
             if (on_north or on_south or on_east or on_west):
                 room_doors.append({
                     'x': door_x,
                     'y': door_y,
-                    'direction': door['direction']
+                    'direction': door['direction'],
+                    'on_wall': 'north' if on_north else 'south' if on_south else 'east' if on_east else 'west'
                 })
 
         # Generate each of the 4 perimeter walls with openings for doors
+        # Walls extend to actual ceiling height (including pocket space)
+        door_height = 128
+        actual_ceiling = self.ceiling_height + door_height + wall_thick
 
-        # NORTH WALL (top edge)
-        north_doors = [d for d in room_doors if abs(d['y'] - room_y2) < self.cell_size / 2]
+        # NORTH WALL (top edge, Y = room_y2)
+        north_doors = [d for d in room_doors if d['on_wall'] == 'north']
         self._generate_wall_segments(f, room_x1, room_y2, room_x2, room_y2 + wall_thick,
-                                     north_doors, 'horizontal', room)
+                                     north_doors, 'horizontal', room, actual_ceiling)
 
-        # SOUTH WALL (bottom edge)
-        south_doors = [d for d in room_doors if abs(d['y'] - room_y1) < self.cell_size / 2]
+        # SOUTH WALL (bottom edge, Y = room_y1)
+        south_doors = [d for d in room_doors if d['on_wall'] == 'south']
         self._generate_wall_segments(f, room_x1, room_y1 - wall_thick, room_x2, room_y1,
-                                     south_doors, 'horizontal', room)
+                                     south_doors, 'horizontal', room, actual_ceiling)
 
-        # EAST WALL (right edge)
-        east_doors = [d for d in room_doors if abs(d['x'] - room_x2) < self.cell_size / 2]
+        # EAST WALL (right edge, X = room_x2)
+        east_doors = [d for d in room_doors if d['on_wall'] == 'east']
         self._generate_wall_segments(f, room_x2, room_y1, room_x2 + wall_thick, room_y2,
-                                     east_doors, 'vertical', room)
+                                     east_doors, 'vertical', room, actual_ceiling)
 
-        # WEST WALL (left edge)
-        west_doors = [d for d in room_doors if abs(d['x'] - room_x1) < self.cell_size / 2]
+        # WEST WALL (left edge, X = room_x1)
+        west_doors = [d for d in room_doors if d['on_wall'] == 'west']
         self._generate_wall_segments(f, room_x1 - wall_thick, room_y1, room_x1, room_y2,
-                                     west_doors, 'vertical', room)
+                                     west_doors, 'vertical', room, actual_ceiling)
 
-    def _generate_wall_segments(self, f, x1, y1, x2, y2, doors, orientation, room):
+    def _generate_wall_segments(self, f, x1, y1, x2, y2, doors, orientation, room, ceiling_height):
         """Generate wall segments with openings for doors
 
         Creates a complete wall with openings cut out where doors will be placed.
         Each opening is door_opening_width wide and door_opening_height tall.
         A small wall section is created above each opening (from opening_height to ceiling).
+        Walls extend to the actual ceiling height (including pocket space above normal ceiling).
 
         Args:
             f: File handle
@@ -896,6 +923,7 @@ class QuakeDungeonGenerator:
             doors: List of doors on this wall (each with 'x', 'y', 'direction')
             orientation: 'horizontal' (wall runs E-W) or 'vertical' (wall runs N-S)
             room: Room dictionary for textures
+            ceiling_height: Actual ceiling height (including pocket space)
         """
         door_opening_width = 64
         door_opening_height = 128
@@ -904,7 +932,7 @@ class QuakeDungeonGenerator:
             # Wall runs along X axis (East-West)
             if not doors:
                 # No doors on this wall - create a complete solid wall
-                self._write_brush(f, x1, y1, self.floor_height, x2, y2, self.ceiling_height, 'wall', room)
+                self._write_brush(f, x1, y1, self.floor_height, x2, y2, ceiling_height, 'wall', room)
             else:
                 # Doors present - create wall segments with openings
                 sorted_doors = sorted(doors, key=lambda d: d['x'])
@@ -918,23 +946,24 @@ class QuakeDungeonGenerator:
                     # Wall segment before door opening (if any)
                     if current_x < door_start:
                         self._write_brush(f, current_x, y1, self.floor_height,
-                                        door_start, y2, self.ceiling_height, 'wall', room)
+                                        door_start, y2, ceiling_height, 'wall', room)
 
                     # Wall section above door opening (from door_height to ceiling)
+                    # This creates the "pocket" where door slides into
                     self._write_brush(f, door_start, y1, self.floor_height + door_opening_height,
-                                    door_end, y2, self.ceiling_height, 'wall', room)
+                                    door_end, y2, ceiling_height, 'wall', room)
 
                     current_x = door_end
 
                 # Final wall segment after last door (if any)
                 if current_x < x2:
                     self._write_brush(f, current_x, y1, self.floor_height,
-                                    x2, y2, self.ceiling_height, 'wall', room)
+                                    x2, y2, ceiling_height, 'wall', room)
         else:
             # Wall runs along Y axis (North-South)
             if not doors:
                 # No doors on this wall - create a complete solid wall
-                self._write_brush(f, x1, y1, self.floor_height, x2, y2, self.ceiling_height, 'wall', room)
+                self._write_brush(f, x1, y1, self.floor_height, x2, y2, ceiling_height, 'wall', room)
             else:
                 # Doors present - create wall segments with openings
                 sorted_doors = sorted(doors, key=lambda d: d['y'])
@@ -948,18 +977,19 @@ class QuakeDungeonGenerator:
                     # Wall segment before door opening (if any)
                     if current_y < door_start:
                         self._write_brush(f, x1, current_y, self.floor_height,
-                                        x2, door_start, self.ceiling_height, 'wall', room)
+                                        x2, door_start, ceiling_height, 'wall', room)
 
                     # Wall section above door opening (from door_height to ceiling)
+                    # This creates the "pocket" where door slides into
                     self._write_brush(f, x1, door_start, self.floor_height + door_opening_height,
-                                    x2, door_end, self.ceiling_height, 'wall', room)
+                                    x2, door_end, ceiling_height, 'wall', room)
 
                     current_y = door_end
 
-                # Final wall segment after last door (if any)
+                # Final wall segment after last opening (if any)
                 if current_y < y2:
                     self._write_brush(f, x1, current_y, self.floor_height,
-                                    x2, y2, self.ceiling_height, 'wall', room)
+                                    x2, y2, ceiling_height, 'wall', room)
 
     def _build_theme_map(self):
         """Build a mapping of grid cells to themes
@@ -1037,18 +1067,26 @@ class QuakeDungeonGenerator:
                             self.ceiling_height + wall_thick, 'wall')
 
             # Write floor and ceiling for each room with its pre-assigned textures
+            # Ceilings need holes cut out above doors for vertical door pockets
+            door_width = 64
+            door_thickness = 8
+            door_height = 128
+
             for room in self.rooms:
                 x1 = room['x'] * self.cell_size
                 y1 = room['y'] * self.cell_size
                 x2 = x1 + (room['width'] * self.cell_size)
                 y2 = y1 + (room['height'] * self.cell_size)
 
-                # Floor for this room (using room's specific textures)
+                # Floor for this room (using room's specific textures) - full coverage
                 self._write_brush(f, x1, y1, -floor_thick, x2, y2, 0, 'floor', room)
 
-                # Ceiling for this room (using room's specific textures)
-                self._write_brush(f, x1, y1, self.ceiling_height, x2, y2,
-                                self.ceiling_height + wall_thick, 'ceiling', room)
+                # Create ceiling ABOVE the door pocket space so doors can slide up
+                # Door height is 128, so pocket needs 128 units of clearance
+                # Ceiling should be at ceiling_height + door_height + small gap
+                ceiling_z = self.ceiling_height + door_height + wall_thick
+                self._write_brush(f, x1, y1, ceiling_z, x2, y2,
+                                ceiling_z + wall_thick, 'ceiling', room)
 
             # Generate perimeter walls for each room with door openings
             for room in self.rooms:
@@ -1115,7 +1153,6 @@ class QuakeDungeonGenerator:
                 f.write('{\n')
                 f.write('"classname" "func_door"\n')
                 f.write(f'"angle" "{door["angle"]}"\n')
-                f.write('"speed" "100"\n')
                 f.write('"sounds" "2"\n')  # Medieval door sound
                 f.write('"wait" "3"\n')  # Wait 3 seconds before closing
                 f.write('"lip" "8"\n')  # How much of door stays visible when open
@@ -1126,26 +1163,28 @@ class QuakeDungeonGenerator:
                 door_thickness = 8
                 door_height = 128
 
-                # Parse origin to get position
-                origin_parts = door["origin"].split()
-                door_x = float(origin_parts[0])
-                door_y = float(origin_parts[1])
+                # Get door position
+                door_x, door_y = door['position']
                 door_z_base = self.floor_height
 
-                # Adjust door position based on direction
-                # The direction indicates which wall the door is on
+                # Position door brush to be PARALLEL to the wall (filling the opening)
+                # The door should be flush with the wall, not sticking out
                 if door["direction"] == 'east' or door["direction"] == 'west':
-                    # Door is on a vertical wall (runs north-south), wide in X direction
-                    x1 = door_x - door_width // 2
-                    x2 = door_x + door_width // 2
-                    y1 = door_y - door_thickness // 2
-                    y2 = door_y + door_thickness // 2
+                    # Door is on a vertical wall (east or west wall of a room)
+                    # Door should be thin in X direction (perpendicular to wall)
+                    # and wide in Y direction (parallel to wall, filling the opening)
+                    x1 = door_x - door_thickness / 2
+                    x2 = door_x + door_thickness / 2
+                    y1 = door_y - door_width / 2
+                    y2 = door_y + door_width / 2
                 else:  # north or south
-                    # Door is on a horizontal wall (runs east-west), wide in Y direction
-                    x1 = door_x - door_thickness // 2
-                    x2 = door_x + door_thickness // 2
-                    y1 = door_y - door_width // 2
-                    y2 = door_y + door_width // 2
+                    # Door is on a horizontal wall (north or south wall of a room)
+                    # Door should be wide in X direction (parallel to wall, filling the opening)
+                    # and thin in Y direction (perpendicular to wall)
+                    x1 = door_x - door_width / 2
+                    x2 = door_x + door_width / 2
+                    y1 = door_y - door_thickness / 2
+                    y2 = door_y + door_thickness / 2
 
                 z1 = door_z_base
                 z2 = door_z_base + door_height
