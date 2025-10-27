@@ -740,6 +740,50 @@ class QuakeDungeonGenerator:
                 'entity_mode': 'normal',
                 'floor_offset': 64,  # Floor is 64 units higher
             },
+            # Phase 3: Complex vertical structures
+            'staircase_up': {
+                'name': 'Ascending Staircase Room',
+                'weight': 5,
+                'size_min': room_min + 1,  # Need space for stairs
+                'size_max': room_max,
+                'lighting': 600,
+                'multi_lights': True,
+                'entity_mode': 'normal',
+                'has_staircase': True,
+                'stair_direction': 'up',
+            },
+            'staircase_down': {
+                'name': 'Descending Staircase Room',
+                'weight': 4,
+                'size_min': room_min + 1,
+                'size_max': room_max,
+                'lighting': 400,  # Darker going down
+                'multi_lights': False,
+                'entity_mode': 'normal',
+                'has_staircase': True,
+                'stair_direction': 'down',
+            },
+            'two_story': {
+                'name': 'Two-Story Room',
+                'weight': 3,
+                'size_min': room_min + 2,  # Need larger room
+                'size_max': room_max,
+                'lighting': 700,
+                'multi_lights': True,
+                'entity_mode': 'normal',
+                'ceiling_height_multiplier': 2.0,
+                'has_balcony': True,
+            },
+            'ramp_room': {
+                'name': 'Ramp Room',
+                'weight': 5,
+                'size_min': room_min + 1,
+                'size_max': room_max,
+                'lighting': 600,
+                'multi_lights': False,
+                'entity_mode': 'normal',
+                'has_ramp': True,
+            },
         }
 
         # Calculate total weight for room type selection
@@ -1062,6 +1106,180 @@ class QuakeDungeonGenerator:
                             plat_x2, plat_y2, plat_z + platform_thickness,
                             'floor', room)
 
+    def _add_staircase_to_room(self, f, room):
+        """Add a staircase (ascending or descending) to a room
+
+        Args:
+            f: File handle
+            room: Room dictionary
+        """
+        room_type = self.room_types.get(room.get('type', 'plain'), {})
+        direction = room_type.get('stair_direction', 'up')
+
+        room_width_units = room['width'] * self.cell_size
+        room_height_units = room['height'] * self.cell_size
+
+        # Staircase parameters
+        step_height = 16  # Each step is 16 units tall
+        step_depth = 32   # Each step is 32 units deep
+        stair_width = min(room_width_units, room_height_units) * 0.6  # 60% of smaller dimension
+
+        room_floor_offset = self._get_room_floor_offset(room)
+        base_floor_z = self.floor_height + room_floor_offset
+
+        # Determine number of steps (go up/down to about 128 units)
+        total_rise = 128
+        num_steps = total_rise // step_height  # 8 steps
+
+        # Position stairs along one side of the room
+        room_x1 = room['x'] * self.cell_size
+        room_y1 = room['y'] * self.cell_size
+
+        # Build stairs along the south wall
+        stair_x1 = room_x1 + (room_width_units - stair_width) / 2  # Center horizontally
+        stair_x2 = stair_x1 + stair_width
+        stair_y1 = room_y1 + 64  # Start 64 units from south wall
+
+        floor_texture = room.get('floor_texture', 'metal1_1')
+
+        # Create each step as a solid brush
+        for i in range(num_steps):
+            step_y1 = stair_y1 + (i * step_depth)
+            step_y2 = step_y1 + step_depth
+
+            if direction == 'up':
+                # Ascending stairs
+                step_z1 = base_floor_z
+                step_z2 = base_floor_z + ((i + 1) * step_height)
+            else:
+                # Descending stairs
+                step_z1 = base_floor_z - ((i + 1) * step_height)
+                step_z2 = base_floor_z
+
+            # Make sure stairs don't go beyond room bounds
+            if step_y2 > room_y1 + room_height_units - 64:
+                break
+
+            # Write step brush
+            self._write_brush(f, stair_x1, step_y1, step_z1,
+                            stair_x2, step_y2, step_z2, 'floor', room)
+
+    def _add_ramp_to_room(self, f, room):
+        """Add a ramp (sloped surface) to a room
+
+        Args:
+            f: File handle
+            room: Room dictionary
+        """
+        room_width_units = room['width'] * self.cell_size
+        room_height_units = room['height'] * self.cell_size
+
+        room_floor_offset = self._get_room_floor_offset(room)
+        base_floor_z = self.floor_height + room_floor_offset
+
+        # Ramp parameters
+        ramp_rise = 96  # Rise 96 units
+        ramp_length = min(room_height_units * 0.6, 384)  # 60% of room height, max 384
+        ramp_width = min(room_width_units * 0.7, 384)
+
+        room_x1 = room['x'] * self.cell_size
+        room_y1 = room['y'] * self.cell_size
+
+        # Position ramp
+        ramp_x1 = room_x1 + (room_width_units - ramp_width) / 2
+        ramp_x2 = ramp_x1 + ramp_width
+        ramp_y1 = room_y1 + 64
+        ramp_y2 = ramp_y1 + ramp_length
+
+        # Create ramp as a wedge-shaped brush
+        # This requires careful plane definitions for the sloped top surface
+        floor_texture = room.get('floor_texture', 'metal1_1')
+        wall_texture = room.get('wall_texture', 'metal2_1')
+
+        # Write ramp brush with angled top face
+        f.write('{\n')
+
+        # West face (vertical)
+        f.write(f'( {ramp_x1} {ramp_y1} {base_floor_z} ) ( {ramp_x1} {ramp_y1+1} {base_floor_z} ) ( {ramp_x1} {ramp_y1} {base_floor_z+1} ) {wall_texture} 0 0 0 1 1\n')
+
+        # East face (vertical)
+        f.write(f'( {ramp_x2} {ramp_y1} {base_floor_z} ) ( {ramp_x2} {ramp_y1} {base_floor_z+1} ) ( {ramp_x2} {ramp_y1+1} {base_floor_z} ) {wall_texture} 0 0 0 1 1\n')
+
+        # South face (low end, vertical)
+        f.write(f'( {ramp_x1} {ramp_y1} {base_floor_z} ) ( {ramp_x1} {ramp_y1} {base_floor_z+1} ) ( {ramp_x1+1} {ramp_y1} {base_floor_z} ) {wall_texture} 0 0 0 1 1\n')
+
+        # North face (high end, vertical from base to top)
+        f.write(f'( {ramp_x1} {ramp_y2} {base_floor_z} ) ( {ramp_x1+1} {ramp_y2} {base_floor_z} ) ( {ramp_x1} {ramp_y2} {base_floor_z + ramp_rise} ) {wall_texture} 0 0 0 1 1\n')
+
+        # Bottom face (flat, horizontal)
+        f.write(f'( {ramp_x1} {ramp_y1} {base_floor_z} ) ( {ramp_x1+1} {ramp_y1} {base_floor_z} ) ( {ramp_x1} {ramp_y1+1} {base_floor_z} ) {wall_texture} 0 0 0 1 1\n')
+
+        # Top face (SLOPED - this is the ramp surface)
+        # Three points: low end (y1), high end (y2 at +rise), and offset point
+        f.write(f'( {ramp_x1} {ramp_y1} {base_floor_z} ) ( {ramp_x1} {ramp_y2} {base_floor_z + ramp_rise} ) ( {ramp_x1+1} {ramp_y1} {base_floor_z} ) {floor_texture} 0 0 0 1 1\n')
+
+        f.write('}\n')
+
+    def _add_balcony_to_room(self, f, room):
+        """Add a balcony/second floor to a two-story room
+
+        Args:
+            f: File handle
+            room: Room dictionary
+        """
+        room_width_units = room['width'] * self.cell_size
+        room_height_units = room['height'] * self.cell_size
+
+        room_floor_offset = self._get_room_floor_offset(room)
+        base_floor_z = self.floor_height + room_floor_offset
+
+        # Balcony parameters
+        balcony_height = base_floor_z + 160  # Balcony at 160 units up
+        balcony_thickness = 16
+
+        # Create an L-shaped balcony around two walls
+        room_x1 = room['x'] * self.cell_size
+        room_y1 = room['y'] * self.cell_size
+        room_x2 = room_x1 + room_width_units
+        room_y2 = room_y1 + room_height_units
+
+        balcony_width = 96  # Balcony extends 96 units into room
+
+        # North balcony (along top wall)
+        self._write_brush(f, room_x1 + 64, room_y2 - balcony_width - 64,
+                         balcony_height,
+                         room_x2 - 64, room_y2 - 64,
+                         balcony_height + balcony_thickness,
+                         'floor', room)
+
+        # East balcony (along right wall)
+        self._write_brush(f, room_x2 - balcony_width - 64, room_y1 + 64,
+                         balcony_height,
+                         room_x2 - 64, room_y2 - balcony_width - 64,
+                         balcony_height + balcony_thickness,
+                         'floor', room)
+
+        # Add a simple staircase to reach the balcony
+        stair_x1 = room_x1 + 64
+        stair_x2 = stair_x1 + 96
+        stair_y1 = room_y1 + 64
+
+        step_height = 16
+        step_depth = 32
+        num_steps = 10  # Reach the balcony
+
+        for i in range(num_steps):
+            step_y1 = stair_y1 + (i * step_depth)
+            step_y2 = step_y1 + step_depth
+            step_z1 = base_floor_z
+            step_z2 = base_floor_z + ((i + 1) * step_height)
+
+            if step_y2 > room_y2 - 64:
+                break
+
+            self._write_brush(f, stair_x1, step_y1, step_z1,
+                            stair_x2, step_y2, step_z2, 'floor', room)
+
     def _assign_room_textures(self, room):
         """Assign specific textures to a room based on its theme
 
@@ -1093,7 +1311,7 @@ class QuakeDungeonGenerator:
     def generate(self):
         """Generate the dungeon layout"""
         # Generate rooms
-        for _ in range(self.num_rooms):
+        for i in range(self.num_rooms):
             room = self._place_random_room()
             if room:
                 # Assign a theme to this room
@@ -1101,6 +1319,11 @@ class QuakeDungeonGenerator:
                 # Assign specific textures from the theme
                 self._assign_room_textures(room)
                 self.rooms.append(room)
+
+                # Make the first room (spawn room) a safe room with supplies
+                if len(self.rooms) == 1:
+                    room['type'] = 'safe_room'
+                    print("Player spawn room set to Safe Room (supplies only, no monsters)")
 
         # Create doors between adjacent rooms
         self._create_doors()
@@ -1643,7 +1866,6 @@ class QuakeDungeonGenerator:
         This version prevents overlapping walls while maintaining complete enclosure.
         """
         wall_thick = self.wall_thickness
-        wall_top_z = self.ceiling_height + self.door_height + self.wall_thickness
 
         door_map = {tuple(sorted((d['room1_idx'], d['room2_idx']))): d for d in self.doors}
 
@@ -1654,6 +1876,12 @@ class QuakeDungeonGenerator:
                     continue
 
                 current_room = self.rooms[room_idx]
+
+                # Calculate wall height for this room (handles two-story rooms)
+                room_type_name = current_room.get('type', 'plain')
+                room_type = self.room_types.get(room_type_name, {})
+                ceiling_multiplier = room_type.get('ceiling_height_multiplier', 1.0)
+                wall_top_z = (self.ceiling_height * ceiling_multiplier) + self.door_height + self.wall_thickness
 
                 # --- Check North & South (Horizontal Walls) ---
                 for dy, direction in [(y - 1, 'north'), (y + 1, 'south')]:
@@ -1860,7 +2088,12 @@ class QuakeDungeonGenerator:
                         self._write_brush(f, x1, y1, -floor_thick, x2, y2, room_floor_z, 'floor', room)
 
                     # Write the ceiling brush for this cell
-                    ceiling_z_bottom = self.ceiling_height + self.door_height
+                    # Check for ceiling height multiplier (two-story rooms)
+                    room_type_name = room.get('type', 'plain')
+                    room_type = self.room_types.get(room_type_name, {})
+                    ceiling_multiplier = room_type.get('ceiling_height_multiplier', 1.0)
+
+                    ceiling_z_bottom = (self.ceiling_height * ceiling_multiplier) + self.door_height
                     ceiling_z_top = ceiling_z_bottom + self.wall_thickness
                     self._write_brush(f, x1, y1, ceiling_z_bottom, x2, y2, ceiling_z_top, 'ceiling', room)
 
@@ -1868,7 +2101,7 @@ class QuakeDungeonGenerator:
             # Step 2: Generate walls on boundaries. This function is already cell-based.
             self._generate_dungeon_walls(f, room_map)
 
-            # Step 3: Add Phase 2 geometric features (pillars, platforms)
+            # Step 3: Add Phase 2 & 3 geometric features (pillars, platforms, stairs, ramps, balconies)
             for room_idx, room in enumerate(self.rooms):
                 room_type_name = room.get('type', 'plain')
                 room_type = self.room_types.get(room_type_name, {})
@@ -1880,6 +2113,18 @@ class QuakeDungeonGenerator:
                 # Add elevated platforms
                 if room_type.get('has_platforms', False):
                     self._add_platforms_to_room(f, room)
+
+                # Phase 3: Add staircases
+                if room_type.get('has_staircase', False):
+                    self._add_staircase_to_room(f, room)
+
+                # Phase 3: Add ramps
+                if room_type.get('has_ramp', False):
+                    self._add_ramp_to_room(f, room)
+
+                # Phase 3: Add balcony for two-story rooms
+                if room_type.get('has_balcony', False):
+                    self._add_balcony_to_room(f, room)
 
             # Generate visual teleporter pads (if any)
             if self.teleporters:
@@ -1898,7 +2143,7 @@ class QuakeDungeonGenerator:
                 end_room = self.rooms[self.end_goal]
                 room_center_x = (end_room['x'] + end_room['width'] / 2) * self.cell_size
                 room_center_y = (end_room['y'] + end_room['height'] / 2) * self.cell_size
-                
+
                 # Create a visible pad on the floor (like teleporter pads)
                 end_goal_texture = 'exit01'  # Use an exit texture to make it obvious
                 pad_size = 96  # Slightly larger than teleporter pads
@@ -1910,7 +2155,25 @@ class QuakeDungeonGenerator:
                 y2 = room_center_y + pad_size / 2
                 z2 = self.floor_height + pad_thickness
                 self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, end_goal_texture)
-            
+
+            # Generate visual spawn pad for player start room
+            if self.rooms:
+                spawn_room = self.rooms[0]
+                room_center_x = (spawn_room['x'] + spawn_room['width'] / 2) * self.cell_size
+                room_center_y = (spawn_room['y'] + spawn_room['height'] / 2) * self.cell_size
+
+                # Create a visible pad on the floor marking the spawn point
+                spawn_pad_texture = 'enter01'  # Use an entry texture to mark spawn
+                pad_size = 96  # Same size as exit pad
+                pad_thickness = 8
+                x1 = room_center_x - pad_size / 2
+                y1 = room_center_y - pad_size / 2
+                z1 = self.floor_height
+                x2 = room_center_x + pad_size / 2
+                y2 = room_center_y + pad_size / 2
+                z2 = self.floor_height + pad_thickness
+                self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, spawn_pad_texture)
+
             f.write('}\n')
 
             # --- ENTITY GENERATION (No changes needed here) ---
