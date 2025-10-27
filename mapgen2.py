@@ -129,12 +129,12 @@ class QuakeMapGenerator2:
         # Start small and simple: 3-5 connected rooms with clear progression
         # Pattern: Spawn -> Small Combat -> Large Arena -> Exit
 
-        # Room 1: Safe spawn room (256x256)
+        # Room 1: Safe spawn room (768x768) - Large comfortable starting area
         spawn_room = {
             'name': 'Spawn Room',
-            'center': (256, 256),
-            'width': 256,
-            'height': 256,
+            'center': (768, 768),
+            'width': 768,
+            'height': 768,
             'floor_z': -32,
             'ceiling_z': 192,
             'type': 'spawn',
@@ -142,64 +142,64 @@ class QuakeMapGenerator2:
             'monsters': []
         }
         self.rooms.append(spawn_room)
-        print(f"  Created: Spawn Room (safe)")
+        print(f"  Created: Spawn Room (safe, 768x768)")
 
-        # Room 2: First combat room with foothold of cover (384x256)
+        # Room 2: First combat room with foothold of cover (896x768)
         # This demonstrates solving the "door problem" with cover near entrance
         combat1_room = {
             'name': 'First Combat',
-            'center': (768, 256),
-            'width': 384,
-            'height': 256,
+            'center': (2048, 768),
+            'width': 896,
+            'height': 768,
             'floor_z': -32,
             'ceiling_z': 192,
             'type': 'combat',
             'has_cover': True,  # Cover blocks near entrance
-            'cover_positions': [(600, 200), (600, 312)],  # Two cover blocks
+            'cover_positions': [(1700, 600), (1700, 936)],  # Two cover blocks near west entrance
             'monsters': self._select_monsters(3, ['melee', 'ranged'])
         }
         self.rooms.append(combat1_room)
-        print(f"  Created: First Combat Room (with cover)")
+        print(f"  Created: First Combat Room (with cover, 896x768)")
 
-        # Room 3: Large central arena with loop pattern (512x512)
+        # Room 3: Large central arena with loop pattern (1280x1280)
         # Loop pattern allows kiting, good for multiple enemies
         arena_room = {
             'name': 'Central Arena',
-            'center': (768, 768),
-            'width': 512,
-            'height': 512,
+            'center': (2048, 2304),
+            'width': 1280,
+            'height': 1280,
             'floor_z': -32,
             'ceiling_z': 256,  # Taller ceiling for vertical gameplay
             'type': 'arena',
             'has_cover': True,
             'has_pillars': True,  # Pillars create cover and break sightlines
-            'pillar_positions': [(640, 640), (896, 640), (640, 896), (896, 896)],
+            'pillar_positions': [(1728, 1984), (2368, 1984), (1728, 2624), (2368, 2624)],
             'monsters': self._select_monsters(6, ['melee', 'ranged', 'melee'])
         }
         self.rooms.append(arena_room)
-        print(f"  Created: Central Arena (large, with pillars)")
+        print(f"  Created: Central Arena (large, with pillars, 1280x1280)")
 
-        # Room 4: Elevated platform room (256x256, higher floor)
-        # Vertical gameplay and positional advantage
-        platform_room = {
-            'name': 'Upper Platform',
-            'center': (1280, 768),
-            'width': 256,
-            'height': 256,
-            'floor_z': 64,  # Elevated floor
-            'ceiling_z': 256,
-            'type': 'platform',
+        # Room 4: Side room (640x640)
+        # Connected to arena
+        side_room = {
+            'name': 'Side Chamber',
+            'center': (3456, 2304),
+            'width': 640,
+            'height': 640,
+            'floor_z': -32,
+            'ceiling_z': 192,
+            'type': 'combat',
             'has_cover': False,
-            'monsters': self._select_monsters(2, ['ranged'])  # Ranged enemies on high ground
+            'monsters': self._select_monsters(2, ['ranged'])
         }
-        self.rooms.append(platform_room)
-        print(f"  Created: Upper Platform (elevated)")
+        self.rooms.append(side_room)
+        print(f"  Created: Side Chamber (640x640)")
 
         # Create connections between rooms
         self.connections = [
-            {'from': 0, 'to': 1, 'type': 'door'},  # Spawn to Combat 1
-            {'from': 1, 'to': 2, 'type': 'door'},  # Combat 1 to Arena
-            {'from': 2, 'to': 3, 'type': 'stairs'},  # Arena to Platform (one-way up)
+            {'from': 0, 'to': 1, 'type': 'opening', 'side': 'east'},  # Spawn to Combat 1 (east wall of spawn)
+            {'from': 1, 'to': 2, 'type': 'opening', 'side': 'south'},  # Combat 1 to Arena (south wall of combat)
+            {'from': 2, 'to': 3, 'type': 'opening', 'side': 'east'},  # Arena to Side (east wall of arena)
         ]
 
         # Add entities (player start, lights, items, monsters)
@@ -329,13 +329,7 @@ class QuakeMapGenerator2:
             # Write all room geometry
             for i, room in enumerate(self.rooms):
                 f.write(f'// ========== {room["name"].upper()} ==========\n')
-                self._write_room(f, room)
-                f.write('\n')
-
-            # Write connections (doors, corridors)
-            for i, conn in enumerate(self.connections):
-                f.write(f'// ========== CONNECTION {i+1} ==========\n')
-                self._write_connection(f, conn)
+                self._write_room(f, room, i)
                 f.write('\n')
 
             f.write('}\n')  # Close worldspawn
@@ -350,7 +344,7 @@ class QuakeMapGenerator2:
 
         print(f"Map file written successfully")
 
-    def _write_room(self, f, room):
+    def _write_room(self, f, room, room_index):
         """Write geometry for a single room"""
         # Calculate room bounds from center and dimensions
         x1 = room['center'][0] - room['width'] // 2
@@ -363,6 +357,9 @@ class QuakeMapGenerator2:
 
         theme = self.themes[self.theme]
 
+        # Find openings for this room
+        openings = self._get_room_openings(room_index)
+
         # Floor
         self._write_brush(f, x1, y1, floor_z - self.floor_thickness,
                          x2, y2, floor_z, theme['floor'])
@@ -371,22 +368,8 @@ class QuakeMapGenerator2:
         self._write_brush(f, x1, y1, ceiling_z,
                          x2, y2, ceiling_z + self.floor_thickness, theme['ceiling'])
 
-        # Walls (4 brushes)
-        # North wall (y = y2)
-        self._write_brush(f, x1, y2 - self.wall_thickness, floor_z,
-                         x2, y2, ceiling_z, theme['wall'])
-
-        # South wall (y = y1)
-        self._write_brush(f, x1, y1, floor_z,
-                         x2, y1 + self.wall_thickness, ceiling_z, theme['wall'])
-
-        # East wall (x = x2)
-        self._write_brush(f, x2 - self.wall_thickness, y1, floor_z,
-                         x2, y2, ceiling_z, theme['wall'])
-
-        # West wall (x = x1)
-        self._write_brush(f, x1, y1, floor_z,
-                         x1 + self.wall_thickness, y2, ceiling_z, theme['wall'])
+        # Walls with openings
+        self._write_walls_with_openings(f, x1, y1, x2, y2, floor_z, ceiling_z, openings, theme)
 
         # Add special features based on room type
         if room.get('has_cover'):
@@ -394,6 +377,104 @@ class QuakeMapGenerator2:
 
         if room.get('has_pillars'):
             self._write_pillars(f, room, theme)
+
+    def _get_room_openings(self, room_index):
+        """Get all openings for a specific room"""
+        openings = []
+        for conn in self.connections:
+            if conn['from'] == room_index:
+                openings.append({
+                    'side': conn['side'],
+                    'width': self.door_width
+                })
+            elif conn['to'] == room_index:
+                # Get opposite side
+                opposite_sides = {'north': 'south', 'south': 'north', 'east': 'west', 'west': 'east'}
+                openings.append({
+                    'side': opposite_sides[conn['side']],
+                    'width': self.door_width
+                })
+        return openings
+
+    def _write_walls_with_openings(self, f, x1, y1, x2, y2, floor_z, ceiling_z, openings, theme):
+        """Write walls with openings for doors"""
+        # Group openings by side
+        openings_by_side = {'north': [], 'south': [], 'east': [], 'west': []}
+        for opening in openings:
+            openings_by_side[opening['side']].append(opening)
+
+        # North wall (y = y2)
+        if not openings_by_side['north']:
+            self._write_brush(f, x1, y2 - self.wall_thickness, floor_z,
+                             x2, y2, ceiling_z, theme['wall'])
+        else:
+            self._write_wall_with_opening(f, x1, y2 - self.wall_thickness, x2, y2,
+                                         floor_z, ceiling_z, 'horizontal', theme['wall'])
+
+        # South wall (y = y1)
+        if not openings_by_side['south']:
+            self._write_brush(f, x1, y1, floor_z,
+                             x2, y1 + self.wall_thickness, ceiling_z, theme['wall'])
+        else:
+            self._write_wall_with_opening(f, x1, y1, x2, y1 + self.wall_thickness,
+                                         floor_z, ceiling_z, 'horizontal', theme['wall'])
+
+        # East wall (x = x2)
+        if not openings_by_side['east']:
+            self._write_brush(f, x2 - self.wall_thickness, y1, floor_z,
+                             x2, y2, ceiling_z, theme['wall'])
+        else:
+            self._write_wall_with_opening(f, x2 - self.wall_thickness, y1, x2, y2,
+                                         floor_z, ceiling_z, 'vertical', theme['wall'])
+
+        # West wall (x = x1)
+        if not openings_by_side['west']:
+            self._write_brush(f, x1, y1, floor_z,
+                             x1 + self.wall_thickness, y2, ceiling_z, theme['wall'])
+        else:
+            self._write_wall_with_opening(f, x1, y1, x1 + self.wall_thickness, y2,
+                                         floor_z, ceiling_z, 'vertical', theme['wall'])
+
+    def _write_wall_with_opening(self, f, x1, y1, x2, y2, floor_z, ceiling_z, orientation, texture):
+        """Write a wall with a centered opening for a door"""
+        # Calculate opening position (centered on wall)
+        if orientation == 'horizontal':
+            # Wall runs along X axis (north/south wall)
+            wall_length = x2 - x1
+            opening_start = x1 + (wall_length - self.door_width) // 2
+            opening_end = opening_start + self.door_width
+
+            # Left section
+            if opening_start > x1:
+                self._write_brush(f, x1, y1, floor_z, opening_start, y2, ceiling_z, texture)
+
+            # Right section
+            if opening_end < x2:
+                self._write_brush(f, opening_end, y1, floor_z, x2, y2, ceiling_z, texture)
+
+            # Lintel (above door)
+            lintel_z = floor_z + self.door_height
+            if lintel_z < ceiling_z:
+                self._write_brush(f, opening_start, y1, lintel_z, opening_end, y2, ceiling_z, texture)
+
+        else:  # vertical
+            # Wall runs along Y axis (east/west wall)
+            wall_length = y2 - y1
+            opening_start = y1 + (wall_length - self.door_width) // 2
+            opening_end = opening_start + self.door_width
+
+            # Bottom section
+            if opening_start > y1:
+                self._write_brush(f, x1, y1, floor_z, x2, opening_start, ceiling_z, texture)
+
+            # Top section
+            if opening_end < y2:
+                self._write_brush(f, x1, opening_end, floor_z, x2, y2, ceiling_z, texture)
+
+            # Lintel (above door)
+            lintel_z = floor_z + self.door_height
+            if lintel_z < ceiling_z:
+                self._write_brush(f, x1, opening_start, lintel_z, x2, opening_end, ceiling_z, texture)
 
     def _write_cover_blocks(self, f, room, theme):
         """Write cover blocks for combat arenas"""
@@ -423,67 +504,6 @@ class QuakeMapGenerator2:
 
             self._write_brush(f, x1, y1, z1, x2, y2, z2, theme['trim'])
 
-    def _write_connection(self, f, conn):
-        """Write connection between rooms (door or corridor)"""
-        room1 = self.rooms[conn['from']]
-        room2 = self.rooms[conn['to']]
-
-        if conn['type'] == 'door':
-            # Simple doorway opening (no actual door entity, just an opening)
-            # Connect centers of two rooms
-            self._write_corridor(f, room1, room2)
-        elif conn['type'] == 'stairs':
-            # Write stairs connecting different height rooms
-            self._write_stairs(f, room1, room2)
-
-    def _write_corridor(self, f, room1, room2):
-        """Write a simple corridor connecting two rooms"""
-        # Calculate corridor path from room1 center to room2 center
-        x1, y1 = room1['center']
-        x2, y2 = room2['center']
-
-        # For simplicity, create an L-shaped corridor
-        # First horizontal, then vertical
-        corridor_width = 128
-        corridor_height = self.door_height
-
-        theme = self.themes[self.theme]
-
-        # Determine which room has the lower floor
-        floor_z = min(room1['floor_z'], room2['floor_z'])
-        ceiling_z = floor_z + corridor_height
-
-        # Horizontal segment
-        if x1 < x2:
-            corridor_x1 = x1 + room1['width'] // 2
-            corridor_x2 = x2 - room2['width'] // 2
-        else:
-            corridor_x1 = x2 + room2['width'] // 2
-            corridor_x2 = x1 - room1['width'] // 2
-
-        corridor_y1 = y1 - corridor_width // 2
-        corridor_y2 = y1 + corridor_width // 2
-
-        # Floor
-        self._write_brush(f, corridor_x1, corridor_y1, floor_z - self.floor_thickness,
-                         corridor_x2, corridor_y2, floor_z, theme['floor'])
-
-        # Ceiling
-        self._write_brush(f, corridor_x1, corridor_y1, ceiling_z,
-                         corridor_x2, corridor_y2, ceiling_z + self.floor_thickness, theme['ceiling'])
-
-        # Walls
-        self._write_brush(f, corridor_x1, corridor_y1, floor_z,
-                         corridor_x2, corridor_y1 + self.wall_thickness, ceiling_z, theme['wall'])
-
-        self._write_brush(f, corridor_x1, corridor_y2 - self.wall_thickness, floor_z,
-                         corridor_x2, corridor_y2, ceiling_z, theme['wall'])
-
-    def _write_stairs(self, f, room1, room2):
-        """Write stairs connecting rooms at different heights"""
-        # For now, just write a simple corridor (stairs are complex)
-        # Future enhancement: proper staircase geometry
-        self._write_corridor(f, room1, room2)
 
     def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture):
         """Write a simple axis-aligned box brush"""
