@@ -14,7 +14,7 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=1):
+    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=1, num_levels=2, upper_room_chance=0.3):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
@@ -27,6 +27,8 @@ class QuakeDungeonGenerator:
                   "gfx.wad;gfx2.wad" - Multiple WAD files (semicolon separated)
         spawn_entities: If True, spawn items/monsters in rooms
         spawn_chance: Probability (0-1) that a room will have entity spawns
+        num_levels: Number of vertical levels in the dungeon (2+ for multi-level support)
+        upper_room_chance: Probability (0-1) that a ground-level room will have stairs to an upper level
         """
         self.grid_size = grid_size
         self.room_min = room_min
@@ -43,7 +45,10 @@ class QuakeDungeonGenerator:
         self.wad_path = wad_path
         self.spawn_entities = spawn_entities
         self.spawn_chance = spawn_chance
-        self.end_goal = None  
+        self.end_goal = None
+        self.num_levels = num_levels
+        self.upper_room_chance = upper_room_chance
+        self.level_height = self.ceiling_height + self.door_height + self.wall_thickness  # Total height per level  
 
         # Texture pools for different surface types
         # NOTE: Texture names are CASE-SENSITIVE and must exist in your WAD files!
@@ -422,11 +427,13 @@ class QuakeDungeonGenerator:
             ]
         }
 
-        # Grid to track occupied spaces
-        self.grid = [[False for _ in range(grid_size)] for _ in range(grid_size)]
+        # Grid to track occupied spaces (per level)
+        # self.grid[level][y][x]
+        self.grid = [[[False for _ in range(grid_size)] for _ in range(grid_size)] for _ in range(num_levels)]
         self.rooms = []
         self.doors = []
         self.teleporters = []
+        self.vertical_connections = []  # List of {'lower_room_idx': idx, 'upper_room_idx': idx, 'stair_bounds': {...}}
 
         # Define coherent texture themes
         # Each theme has floor, wall, and ceiling textures that work well together
@@ -1480,24 +1487,169 @@ class QuakeDungeonGenerator:
         if 'ceiling_texture' in room_type:
             room['ceiling_texture'] = room_type['ceiling_texture']
 
+    def _calculate_stair_bounds(self, room):
+        """Calculate the bounds of the staircase in a room
+
+        Args:
+            room: Room dictionary
+
+        Returns:
+            Dictionary with staircase bounds {'x1', 'y1', 'x2', 'y2'} in world coordinates
+        """
+        room_width_units = room['width'] * self.cell_size
+        room_height_units = room['height'] * self.cell_size
+
+        # Staircase parameters (match _add_staircase_to_room)
+        stair_width = min(room_width_units, room_height_units) * 0.6
+
+        room_x1 = room['x'] * self.cell_size
+        room_y1 = room['y'] * self.cell_size
+
+        # Position stairs along the south side (match _add_staircase_to_room)
+        stair_x1 = room_x1 + (room_width_units - stair_width) / 2
+        stair_x2 = stair_x1 + stair_width
+        stair_y1 = room_y1 + 64
+
+        step_depth = 32
+        num_steps = 8  # Match the staircase method
+        stair_y2 = stair_y1 + (num_steps * step_depth)
+
+        return {
+            'x1': stair_x1,
+            'y1': stair_y1,
+            'x2': stair_x2,
+            'y2': stair_y2
+        }
+
+    def _add_vertical_staircase(self, f, room, target_level):
+        """Add a staircase that connects to an upper level
+
+        Args:
+            f: File handle
+            room: Room dictionary (lower room)
+            target_level: The level this staircase leads to
+        """
+        room_width_units = room['width'] * self.cell_size
+        room_height_units = room['height'] * self.cell_size
+
+        # Staircase parameters
+        step_height = 16
+        step_depth = 32
+        stair_width = min(room_width_units, room_height_units) * 0.6
+
+        room_level = room.get('level', 0)
+        room_floor_offset = self._get_room_floor_offset(room)
+        base_floor_z = self.floor_height + (room_level * self.level_height) + room_floor_offset
+
+        # Calculate total rise to reach next level
+        total_rise = self.level_height
+        num_steps = int(total_rise / step_height)
+
+        # Position stairs
+        room_x1 = room['x'] * self.cell_size
+        room_y1 = room['y'] * self.cell_size
+
+        stair_x1 = room_x1 + (room_width_units - stair_width) / 2
+        stair_x2 = stair_x1 + stair_width
+        stair_y1 = room_y1 + 64
+
+        floor_texture = room.get('floor_texture', 'metal1_1')
+
+        # Create each step
+        for i in range(num_steps):
+            step_y1 = stair_y1 + (i * step_depth)
+            step_y2 = step_y1 + step_depth
+            step_z1 = base_floor_z
+            step_z2 = base_floor_z + ((i + 1) * step_height)
+
+            # Make sure stairs don't go beyond room bounds
+            if step_y2 > room_y1 + room_height_units - 64:
+                break
+
+            # Write step brush
+            self._write_brush(f, stair_x1, step_y1, step_z1,
+                            stair_x2, step_y2, step_z2, 'floor', room)
+
+    def _add_floor_hole(self, f, room, hole_bounds):
+        """Create a hole in the floor of an upper room
+
+        This is achieved by NOT generating floor brushes in the hole area.
+        The hole_bounds are stored in the room dictionary for use during floor generation.
+
+        Args:
+            f: File handle (not used, kept for consistency)
+            room: Upper room dictionary
+            hole_bounds: Dictionary with 'x1', 'y1', 'x2', 'y2' defining hole area
+        """
+        # Store hole bounds in room for later use during floor generation
+        room['floor_hole_bounds'] = hole_bounds
+
     def generate(self):
-        """Generate the dungeon layout"""
-        # Generate rooms
+        """Generate the dungeon layout with multi-level support"""
+        # Phase 1: Generate ground-level rooms (level 0)
+        ground_rooms = []
         for i in range(self.num_rooms):
-            room = self._place_random_room()
+            room = self._place_random_room(level=0)
             if room:
                 # Assign a theme to this room
                 room['theme'] = self._choose_next_theme()
                 # Assign specific textures from the theme
                 self._assign_room_textures(room)
                 self.rooms.append(room)
+                ground_rooms.append(len(self.rooms) - 1)  # Track ground room indices
 
                 # Make the first room (spawn room) a safe room with supplies
                 if len(self.rooms) == 1:
                     room['type'] = 'safe_room'
                     print("Player spawn room set to Safe Room (supplies only, no monsters)")
 
-        # Create doors between adjacent rooms
+        # Phase 2: Add upper level rooms if multi-level is enabled
+        if self.num_levels > 1:
+            print(f"\nGenerating {self.num_levels} level dungeon...")
+
+            # Select some ground rooms to have stairs leading up
+            rooms_with_stairs = []
+            for room_idx in ground_rooms:
+                room = self.rooms[room_idx]
+                # Don't add stairs to spawn room or rooms that already have special features
+                if room_idx == 0:
+                    continue
+
+                if random.random() < self.upper_room_chance:
+                    room['has_vertical_stairs'] = True
+                    rooms_with_stairs.append(room_idx)
+
+            print(f"Adding stairs to {len(rooms_with_stairs)} ground-level rooms")
+
+            # Create upper rooms above rooms with stairs
+            for lower_room_idx in rooms_with_stairs:
+                lower_room = self.rooms[lower_room_idx]
+                upper_level = lower_room['level'] + 1
+
+                upper_room = self._place_upper_room_above(lower_room, upper_level)
+                if upper_room:
+                    # Assign theme and textures
+                    upper_room['theme'] = self._choose_next_theme()
+                    self._assign_room_textures(upper_room)
+                    self.rooms.append(upper_room)
+                    upper_room_idx = len(self.rooms) - 1
+
+                    # Calculate staircase bounds for the hole
+                    stair_bounds = self._calculate_stair_bounds(lower_room)
+
+                    # Add floor hole to upper room
+                    self._add_floor_hole(None, upper_room, stair_bounds)
+
+                    # Track the vertical connection
+                    self.vertical_connections.append({
+                        'lower_room_idx': lower_room_idx,
+                        'upper_room_idx': upper_room_idx,
+                        'stair_bounds': stair_bounds
+                    })
+
+                    print(f"  Upper room {upper_room_idx + 1} placed above room {lower_room_idx + 1}")
+
+        # Create doors between adjacent rooms (on the same level)
         self._create_doors()
 
         # Check connectivity and add teleporters if needed
@@ -1509,8 +1661,8 @@ class QuakeDungeonGenerator:
             self.end_goal = end_goal_room_idx
             print(f"\nEnd goal placed in room {end_goal_room_idx + 1}")
         
-    def _place_random_room(self, max_attempts=50):
-        """Try to place a random room on the grid"""
+    def _place_random_room(self, max_attempts=50, level=0):
+        """Try to place a random room on the grid at specified level"""
         # Select room type first
         room_type_name = self._select_room_type()
 
@@ -1526,33 +1678,84 @@ class QuakeDungeonGenerator:
             y = random.randint(0, self.grid_size - height)
 
             # Check if space is free
-            if self._is_space_free(x, y, width, height):
+            if self._is_space_free(x, y, width, height, level):
                 # Mark space as occupied
                 for dy in range(height):
                     for dx in range(width):
-                        self.grid[y + dy][x + dx] = True
+                        self.grid[level][y + dy][x + dx] = True
 
                 return {
                     'x': x,
                     'y': y,
                     'width': width,
                     'height': height,
-                    'type': room_type_name
+                    'type': room_type_name,
+                    'level': level
                 }
 
         return None
-    
-    def _is_space_free(self, x, y, width, height):
-        """Check if a rectangular space is free"""
+
+    def _is_space_free(self, x, y, width, height, level=0):
+        """Check if a rectangular space is free at specified level"""
         if x + width > self.grid_size or y + height > self.grid_size:
             return False
-        
+
         for dy in range(height):
             for dx in range(width):
-                if self.grid[y + dy][x + dx]:
+                if self.grid[level][y + dy][x + dx]:
                     return False
         return True
-    
+
+    def _place_upper_room_above(self, lower_room, upper_level):
+        """Place an upper-level room above a lower room with stairs
+
+        Args:
+            lower_room: The room dictionary of the lower room with stairs
+            upper_level: The level to place the upper room (typically lower_room['level'] + 1)
+
+        Returns:
+            Upper room dictionary if successful, None otherwise
+        """
+        # Try to place a room centered above the lower room
+        # The upper room should overlap the stair area
+        room_type_name = self._select_room_type()
+
+        # Try several times with different sizes
+        for _ in range(10):
+            width, height = self._get_room_dimensions(room_type_name)
+
+            # Calculate position to center over lower room (with some randomness)
+            center_x = lower_room['x'] + lower_room['width'] // 2
+            center_y = lower_room['y'] + lower_room['height'] // 2
+
+            # Add some randomness to offset
+            offset_x = random.randint(-1, 1)
+            offset_y = random.randint(-1, 1)
+
+            x = max(0, min(self.grid_size - width, center_x - width // 2 + offset_x))
+            y = max(0, min(self.grid_size - height, center_y - height // 2 + offset_y))
+
+            # Check if space is free
+            if self._is_space_free(x, y, width, height, upper_level):
+                # Mark space as occupied
+                for dy in range(height):
+                    for dx in range(width):
+                        self.grid[upper_level][y + dy][x + dx] = True
+
+                upper_room = {
+                    'x': x,
+                    'y': y,
+                    'width': width,
+                    'height': height,
+                    'type': room_type_name,
+                    'level': upper_level,
+                    'has_floor_hole': True  # Mark that this room needs a hole
+                }
+
+                return upper_room
+
+        return None
+
     def _find_adjacent_rooms(self, room1, room2):
         """Check if two rooms are adjacent and find the shared wall
 
@@ -1566,6 +1769,10 @@ class QuakeDungeonGenerator:
                 'position': (grid_x, grid_y) - position for door in grid coordinates
             }
         """
+        # Only connect rooms on the same level
+        if room1.get('level', 0) != room2.get('level', 0):
+            return None
+
         # Check if rooms share a wall (are adjacent)
         # East-West adjacency
         if room1['x'] + room1['width'] == room2['x']:
@@ -1957,7 +2164,12 @@ class QuakeDungeonGenerator:
             nonlocal entity_num
             x = random.randint(int(room_x1), int(room_x2))
             y = random.randint(int(room_y1), int(room_y2))
-            z = self.floor_height + 24
+
+            # Account for room level
+            room_level = room.get('level', 0)
+            level_z_offset = room_level * self.level_height
+            z = self.floor_height + level_z_offset + 24
+
             entities.append({
                 'num': entity_num,
                 'classname': classname,
@@ -2031,13 +2243,19 @@ class QuakeDungeonGenerator:
         return entities, entity_num
 
 
-    def _generate_dungeon_walls(self, f, room_map):
+    def _generate_dungeon_walls(self, f, room_map, level=0):
         """
         Generates walls on boundaries. If a door exists on a boundary, it
         builds the wall pieces around the door's location, creating a frame.
         This version prevents overlapping walls while maintaining complete enclosure.
+
+        Args:
+            f: File handle
+            room_map: 2D grid mapping cells to room indices
+            level: The vertical level being processed (default 0)
         """
         wall_thick = self.wall_thickness
+        level_z_offset = level * self.level_height
 
         door_map = {tuple(sorted((d['room1_idx'], d['room2_idx']))): d for d in self.doors}
 
@@ -2053,7 +2271,8 @@ class QuakeDungeonGenerator:
                 room_type_name = current_room.get('type', 'plain')
                 room_type = self.room_types.get(room_type_name, {})
                 ceiling_multiplier = room_type.get('ceiling_height_multiplier', 1.0)
-                wall_top_z = (self.ceiling_height * ceiling_multiplier) + self.door_height + self.wall_thickness
+                wall_top_z = level_z_offset + (self.ceiling_height * ceiling_multiplier) + self.door_height + self.wall_thickness
+                wall_floor_z = level_z_offset + self.floor_height
 
                 # --- Check North & South (Horizontal Walls) ---
                 for dy, direction in [(y - 1, 'north'), (y + 1, 'south')]:
@@ -2081,24 +2300,24 @@ class QuakeDungeonGenerator:
                     if door:
                         door_x1 = door['position'][0] - self.door_width / 2
                         door_x2 = door['position'][0] + self.door_width / 2
-                        door_z2 = self.floor_height + self.door_height
-                        
+                        door_z2 = wall_floor_z + self.door_height
+
                         clamped_dx1 = max(cell_x1, door_x1)
                         clamped_dx2 = min(cell_x2, door_x2)
 
                         if clamped_dx1 < clamped_dx2:
                             # Only write frame pieces if they have volume
                             if cell_x1 < clamped_dx1: # Left of door
-                                self._write_brush(f, cell_x1, min_y, self.floor_height, clamped_dx1, max_y, wall_top_z, 'wall', current_room)
+                                self._write_brush(f, cell_x1, min_y, wall_floor_z, clamped_dx1, max_y, wall_top_z, 'wall', current_room)
                             if clamped_dx2 < cell_x2: # Right of door
-                                self._write_brush(f, clamped_dx2, min_y, self.floor_height, cell_x2, max_y, wall_top_z, 'wall', current_room)
-                            
+                                self._write_brush(f, clamped_dx2, min_y, wall_floor_z, cell_x2, max_y, wall_top_z, 'wall', current_room)
+
                             # Above door (lintel)
                             self._write_brush(f, clamped_dx1, min_y, door_z2, clamped_dx2, max_y, wall_top_z, 'wall', current_room)
                             continue
 
                     # No door or door doesn't overlap this cell
-                    self._write_brush(f, cell_x1, min_y, self.floor_height, cell_x2, max_y, wall_top_z, 'wall', current_room)
+                    self._write_brush(f, cell_x1, min_y, wall_floor_z, cell_x2, max_y, wall_top_z, 'wall', current_room)
 
                 # --- Check West & East (Vertical Walls) ---
                 for dx, direction in [(x - 1, 'west'), (x + 1, 'east')]:
@@ -2126,24 +2345,24 @@ class QuakeDungeonGenerator:
                     if door:
                         door_y1 = door['position'][1] - self.door_width / 2
                         door_y2 = door['position'][1] + self.door_width / 2
-                        door_z2 = self.floor_height + self.door_height
+                        door_z2 = wall_floor_z + self.door_height
 
                         clamped_dy1 = max(cell_y1, door_y1)
                         clamped_dy2 = min(cell_y2, door_y2)
-                        
+
                         if clamped_dy1 < clamped_dy2:
                             # Only write frame pieces if they have volume
                             if cell_y1 < clamped_dy1: # Below door
-                                self._write_brush(f, min_x, cell_y1, self.floor_height, max_x, clamped_dy1, wall_top_z, 'wall', current_room)
+                                self._write_brush(f, min_x, cell_y1, wall_floor_z, max_x, clamped_dy1, wall_top_z, 'wall', current_room)
                             if clamped_dy2 < cell_y2: # Above door
-                                self._write_brush(f, min_x, clamped_dy2, self.floor_height, max_x, cell_y2, wall_top_z, 'wall', current_room)
+                                self._write_brush(f, min_x, clamped_dy2, wall_floor_z, max_x, cell_y2, wall_top_z, 'wall', current_room)
 
                             # Lintel
                             self._write_brush(f, min_x, clamped_dy1, door_z2, max_x, clamped_dy2, wall_top_z, 'wall', current_room)
                             continue
 
                     # No door or door doesn't overlap this cell
-                    self._write_brush(f, min_x, cell_y1, self.floor_height, max_x, cell_y2, wall_top_z, 'wall', current_room)
+                    self._write_brush(f, min_x, cell_y1, wall_floor_z, max_x, cell_y2, wall_top_z, 'wall', current_room)
 
 
     def _build_theme_map(self):
@@ -2196,82 +2415,118 @@ class QuakeDungeonGenerator:
             f.write('"classname" "worldspawn"\n')
             if self.wad_path:
                 f.write(f'"wad" "{self.wad_path}"\n')
-            
-            room_map = self._build_room_map()
+
             floor_thick = 32
 
-            map_top_z = self.ceiling_height + self.door_height + self.wall_thickness
+            # Calculate map bounds for all levels
+            map_top_z = self.level_height * self.num_levels
 
             # Create a robust, hollow box to seal the entire map from the void.
             map_size = self.grid_size * self.cell_size
             padding = 128
             # Outer Floor
             self._write_brush(f, -padding, -padding, -floor_thick - self.wall_thickness, map_size + padding, map_size + padding, -floor_thick, 'wall')
-            # Outer Ceiling
+            # Outer Ceiling (extends to top of highest level)
             self._write_brush(f, -padding, -padding, map_top_z, map_size + padding, map_size + padding, map_top_z + self.wall_thickness, 'ceiling')
-            # Outer Walls
+            # Outer Walls (extend to top of highest level)
             self._write_brush(f, -padding, -padding, -floor_thick, map_size + padding, -padding + self.wall_thickness, map_top_z, 'wall')
             self._write_brush(f, -padding, map_size + padding - self.wall_thickness, -floor_thick, map_size + padding, map_size + padding, map_top_z, 'wall')
             self._write_brush(f, -padding, -padding, -floor_thick, -padding + self.wall_thickness, map_size + padding, map_top_z, 'wall')
             self._write_brush(f, map_size + padding - self.wall_thickness, -padding, -floor_thick, map_size + padding, map_size + padding, map_top_z, 'wall')
 
-            # Build list of cells to skip floor generation (for pits)
+            # Build list of cells to skip floor generation (for pits and floor holes)
+            # Key: (level, x, y)
             skip_floor_cells = set()
             liquid_triggers = []  # Store trigger_hurt data for liquid pools
 
-            # Phase 2: Pre-generate special room features to determine floor exclusions
+            # Calculate floor holes for upper rooms
             for room_idx, room in enumerate(self.rooms):
-                room_type_name = room.get('type', 'plain')
-                room_type = self.room_types.get(room_type_name, {})
+                if 'floor_hole_bounds' in room:
+                    hole_bounds = room['floor_hole_bounds']
+                    room_level = room.get('level', 0)
 
-                # Handle pit rooms
-                if room_type.get('has_pit', False):
-                    pit_cells = self._add_pit_to_room(f, room, room_map)
-                    skip_floor_cells.update(pit_cells)
+                    # Convert world coordinates to grid cells
+                    hole_x1_cell = int(hole_bounds['x1'] / self.cell_size)
+                    hole_y1_cell = int(hole_bounds['y1'] / self.cell_size)
+                    hole_x2_cell = int(hole_bounds['x2'] / self.cell_size) + 1
+                    hole_y2_cell = int(hole_bounds['y2'] / self.cell_size) + 1
 
-                # Handle liquid pool rooms
-                elif room_type.get('has_liquid', False):
-                    trigger_data = self._add_liquid_pool_to_room(f, room)
-                    if trigger_data:
-                        liquid_triggers.append(trigger_data)
+                    # Mark cells in hole area to skip floor generation
+                    for hy in range(hole_y1_cell, hole_y2_cell):
+                        for hx in range(hole_x1_cell, hole_x2_cell):
+                            if 0 <= hx < self.grid_size and 0 <= hy < self.grid_size:
+                                skip_floor_cells.add((room_level, hx, hy))
 
-            # --- NEW CELL-BASED GEOMETRY GENERATION ---
-            # Step 1: Generate floors and ceilings for each individual cell.
-            for y in range(self.grid_size):
-                for x in range(self.grid_size):
-                    room_idx = room_map[y][x]
-                    if room_idx == -1:
-                        continue # Skip empty cells
+            # --- MULTI-LEVEL GEOMETRY GENERATION ---
+            # Process each level separately
+            for level in range(self.num_levels):
+                room_map = self._build_room_map(level)
 
-                    room = self.rooms[room_idx]
+                # Phase 2: Pre-generate special room features to determine floor exclusions
+                for room_idx, room in enumerate(self.rooms):
+                    if room.get('level', 0) != level:
+                        continue
 
-                    # Calculate coordinates for this specific cell
-                    x1 = x * self.cell_size
-                    y1 = y * self.cell_size
-                    x2 = x1 + self.cell_size
-                    y2 = y1 + self.cell_size
-
-                    # Get floor offset for this room type (sunken/raised rooms)
-                    room_floor_offset = self._get_room_floor_offset(room)
-                    room_floor_z = self.floor_height + room_floor_offset
-
-                    # Write the floor brush for this cell (unless it's in a pit)
-                    if (x, y) not in skip_floor_cells:
-                        self._write_brush(f, x1, y1, -floor_thick, x2, y2, room_floor_z, 'floor', room)
-
-                    # Write the ceiling brush for this cell
-                    # Check for ceiling height multiplier (two-story rooms)
                     room_type_name = room.get('type', 'plain')
                     room_type = self.room_types.get(room_type_name, {})
-                    ceiling_multiplier = room_type.get('ceiling_height_multiplier', 1.0)
 
-                    ceiling_z_bottom = (self.ceiling_height * ceiling_multiplier) + self.door_height
-                    ceiling_z_top = ceiling_z_bottom + self.wall_thickness
-                    self._write_brush(f, x1, y1, ceiling_z_bottom, x2, y2, ceiling_z_top, 'ceiling', room)
+                    # Handle pit rooms
+                    if room_type.get('has_pit', False):
+                        pit_cells = self._add_pit_to_room(f, room, room_map)
+                        # Add level to pit cells
+                        for cell in pit_cells:
+                            skip_floor_cells.add((level, cell[0], cell[1]))
 
+                    # Handle liquid pool rooms
+                    elif room_type.get('has_liquid', False):
+                        trigger_data = self._add_liquid_pool_to_room(f, room)
+                        if trigger_data:
+                            liquid_triggers.append(trigger_data)
 
-            # Step 2: Generate walls on boundaries. This function is already cell-based.
-            self._generate_dungeon_walls(f, room_map)
+                # Step 1: Generate floors and ceilings for each individual cell on this level
+                for y in range(self.grid_size):
+                    for x in range(self.grid_size):
+                        room_idx = room_map[y][x]
+                        if room_idx == -1:
+                            continue # Skip empty cells
+
+                        room = self.rooms[room_idx]
+
+                        # Calculate coordinates for this specific cell
+                        x1 = x * self.cell_size
+                        y1 = y * self.cell_size
+                        x2 = x1 + self.cell_size
+                        y2 = y1 + self.cell_size
+
+                        # Get floor offset for this room type (sunken/raised rooms)
+                        room_floor_offset = self._get_room_floor_offset(room)
+                        # Calculate z position based on level
+                        level_z_offset = level * self.level_height
+                        room_floor_z = self.floor_height + level_z_offset + room_floor_offset
+
+                        # Write the floor brush for this cell (unless it's in a pit or floor hole)
+                        if (level, x, y) not in skip_floor_cells:
+                            self._write_brush(f, x1, y1, -floor_thick + level_z_offset, x2, y2, room_floor_z, 'floor', room)
+
+                        # Write the ceiling brush for this cell
+                        # Check for ceiling height multiplier (two-story rooms)
+                        room_type_name = room.get('type', 'plain')
+                        room_type = self.room_types.get(room_type_name, {})
+                        ceiling_multiplier = room_type.get('ceiling_height_multiplier', 1.0)
+
+                        ceiling_z_bottom = level_z_offset + (self.ceiling_height * ceiling_multiplier) + self.door_height
+                        ceiling_z_top = ceiling_z_bottom + self.wall_thickness
+
+                        # Don't generate ceiling if there's a room directly above with a connecting staircase
+                        skip_ceiling = False
+                        if room.get('has_vertical_stairs', False):
+                            skip_ceiling = True
+
+                        if not skip_ceiling:
+                            self._write_brush(f, x1, y1, ceiling_z_bottom, x2, y2, ceiling_z_top, 'ceiling', room)
+
+                # Step 2: Generate walls on boundaries for this level
+                self._generate_dungeon_walls(f, room_map, level)
 
             # Step 3: Add Phase 2 & 3 geometric features (pillars, platforms, stairs, ramps, balconies)
             for room_idx, room in enumerate(self.rooms):
@@ -2286,9 +2541,14 @@ class QuakeDungeonGenerator:
                 if room_type.get('has_platforms', False):
                     self._add_platforms_to_room(f, room)
 
-                # Phase 3: Add staircases
+                # Phase 3: Add staircases (decorative, within-room stairs)
                 if room_type.get('has_staircase', False):
                     self._add_staircase_to_room(f, room)
+
+                # Phase 3: Add vertical staircases (connecting to upper levels)
+                if room.get('has_vertical_stairs', False):
+                    target_level = room.get('level', 0) + 1
+                    self._add_vertical_staircase(f, room, target_level)
 
                 # Phase 3: Add ramps
                 if room_type.get('has_ramp', False):
@@ -2316,16 +2576,20 @@ class QuakeDungeonGenerator:
                 room_center_x = (end_room['x'] + end_room['width'] / 2) * self.cell_size
                 room_center_y = (end_room['y'] + end_room['height'] / 2) * self.cell_size
 
+                # Account for room level
+                room_level = end_room.get('level', 0)
+                level_z_offset = room_level * self.level_height
+
                 # Create a visible pad on the floor (like teleporter pads)
                 end_goal_texture = 'z_exit'  # Use an exit texture to make it obvious
                 pad_size = 96  # Slightly larger than teleporter pads
                 pad_thickness = 8
                 x1 = room_center_x - pad_size / 2
                 y1 = room_center_y - pad_size / 2
-                z1 = self.floor_height
+                z1 = self.floor_height + level_z_offset
                 x2 = room_center_x + pad_size / 2
                 y2 = room_center_y + pad_size / 2
-                z2 = self.floor_height + pad_thickness
+                z2 = self.floor_height + level_z_offset + pad_thickness
                 self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, end_goal_texture)
 
             # Generate visual spawn pad for player start room
@@ -2334,28 +2598,37 @@ class QuakeDungeonGenerator:
                 room_center_x = (spawn_room['x'] + spawn_room['width'] / 2) * self.cell_size
                 room_center_y = (spawn_room['y'] + spawn_room['height'] / 2) * self.cell_size
 
+                # Account for room level (should be 0 for spawn room)
+                room_level = spawn_room.get('level', 0)
+                level_z_offset = room_level * self.level_height
+
                 # Create a visible pad on the floor marking the spawn point
                 spawn_pad_texture = '+0button'  # Use an entry texture to mark spawn
                 pad_size = 96  # Same size as exit pad
                 pad_thickness = 8
                 x1 = room_center_x - pad_size / 2
                 y1 = room_center_y - pad_size / 2
-                z1 = self.floor_height
+                z1 = self.floor_height + level_z_offset
                 x2 = room_center_x + pad_size / 2
                 y2 = room_center_y + pad_size / 2
-                z2 = self.floor_height + pad_thickness
+                z2 = self.floor_height + level_z_offset + pad_thickness
                 self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, spawn_pad_texture)
 
             f.write('}\n')
 
-            # --- ENTITY GENERATION (No changes needed here) ---
+            # --- ENTITY GENERATION ---
             entity_num = 1
             if self.rooms:
                 # Player Start
                 spawn_room = self.rooms[0] # Spawn in the first generated room for consistency
                 room_center_x = (spawn_room['x'] + spawn_room['width'] / 2) * self.cell_size
                 room_center_y = (spawn_room['y'] + spawn_room['height'] / 2) * self.cell_size
-                z = self.floor_height + 24
+
+                # Account for room level
+                room_level = spawn_room.get('level', 0)
+                level_z_offset = room_level * self.level_height
+                z = self.floor_height + level_z_offset + 24
+
                 angle = random.choice([0, 90, 180, 270])
                 f.write('// entity 1\n{\n')
                 f.write('"classname" "info_player_start"\n')
@@ -2389,8 +2662,12 @@ class QuakeDungeonGenerator:
                         center_y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) / 2
                         light_positions.append((center_x, center_y))
 
+                    # Account for room level
+                    room_level = room.get('level', 0)
+                    level_z_offset = room_level * self.level_height
+
                     for light_x, light_y in light_positions:
-                        z = self.ceiling_height - 32
+                        z = level_z_offset + self.ceiling_height - 32
                         f.write(f'// entity {entity_num}\n{{\n')
                         f.write('"classname" "light"\n')
                         f.write(f'"origin" "{light_x} {light_y} {z}"\n')
@@ -2406,7 +2683,12 @@ class QuakeDungeonGenerator:
                     # Single center light
                     x = (room['x'] * self.cell_size) + (room['width'] * self.cell_size) / 2
                     y = (room['y'] * self.cell_size) + (room['height'] * self.cell_size) / 2
-                    z = self.ceiling_height - 32
+
+                    # Account for room level
+                    room_level = room.get('level', 0)
+                    level_z_offset = room_level * self.level_height
+                    z = level_z_offset + self.ceiling_height - 32
+
                     f.write(f'// entity {entity_num}\n{{\n')
                     f.write('"classname" "light"\n')
                     f.write(f'"origin" "{x} {y} {z}"\n')
@@ -2506,11 +2788,22 @@ class QuakeDungeonGenerator:
                 f.write('}\n')
                 entity_num += 1
 
-    def _build_room_map(self):
-        """Build a 2D grid mapping cell coordinates to the index of the room occupying it."""
+    def _build_room_map(self, level=None):
+        """Build a 2D grid mapping cell coordinates to the index of the room occupying it.
+
+        Args:
+            level: If specified, only build map for that level. If None, build for level 0.
+        """
+        if level is None:
+            level = 0
+
         # Initialize grid with -1 (empty space)
         room_map = [[-1 for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         for i, room in enumerate(self.rooms):
+            # Only include rooms on the specified level
+            if room.get('level', 0) != level:
+                continue
+
             for dy in range(room['height']):
                 for dx in range(room['width']):
                     if 0 <= room['y'] + dy < self.grid_size and 0 <= room['x'] + dx < self.grid_size:
@@ -2581,11 +2874,20 @@ class QuakeDungeonGenerator:
     def print_layout(self):
         """Print ASCII representation of the dungeon"""
         print("\nDungeon Layout:")
-        for y in range(self.grid_size):
-            for x in range(self.grid_size):
-                print('#' if self.grid[y][x] else '.', end='')
-            print()
+
+        # Print each level separately
+        for level in range(self.num_levels):
+            print(f"\n--- Level {level} ---")
+            for y in range(self.grid_size):
+                for x in range(self.grid_size):
+                    print('#' if self.grid[level][y][x] else '.', end='')
+                print()
+
         print(f"\nGenerated {len(self.rooms)} rooms and {len(self.doors)} doors connecting adjacent rooms")
+
+        # Show vertical connections
+        if self.vertical_connections:
+            print(f"Vertical connections (stairs): {len(self.vertical_connections)}")
 
         # Show teleporter count
         num_teleporter_pairs = len(self.teleporters) // 4  # 4 entities per pair (2 triggers + 2 destinations)
