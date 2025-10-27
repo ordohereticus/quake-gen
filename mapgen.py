@@ -14,7 +14,7 @@ import random
 import math
 
 class QuakeDungeonGenerator:
-    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=1):
+    def __init__(self, grid_size=10, room_min=12, room_max=20, num_rooms=18, texture_variety=True, wad_path="id.wad", spawn_entities=True, spawn_chance=1, music_track=0):
         """
         grid_size: Size of the grid (grid_size x grid_size cells)
         room_min/max: Min and max room dimensions in grid cells
@@ -27,6 +27,7 @@ class QuakeDungeonGenerator:
                   "gfx.wad;gfx2.wad" - Multiple WAD files (semicolon separated)
         spawn_entities: If True, spawn items/monsters in rooms
         spawn_chance: Probability (0-1) that a room will have entity spawns
+        music_track: Music track number (2-11) to play. 0 = no music. Requires trackXX.ogg files in id1/music/
         """
         self.grid_size = grid_size
         self.room_min = room_min
@@ -43,6 +44,7 @@ class QuakeDungeonGenerator:
         self.wad_path = wad_path
         self.spawn_entities = spawn_entities
         self.spawn_chance = spawn_chance
+        self.music_track = music_track
         self.end_goal = None  
 
         # Texture pools for different surface types
@@ -1796,7 +1798,9 @@ class QuakeDungeonGenerator:
             f.write('"classname" "worldspawn"\n')
             if self.wad_path:
                 f.write(f'"wad" "{self.wad_path}"\n')
-            
+            if self.music_track > 0:
+                f.write(f'"sounds" "{self.music_track}"\n')
+
             room_map = self._build_room_map()
             floor_thick = 32
 
@@ -2196,7 +2200,8 @@ if __name__ == '__main__':
         room_max=4,
         num_rooms=100,
         texture_variety=True,  # Enable random texture selection for variety
-        wad_path="id.wad;"  # WAD files for texture loading
+        wad_path="id.wad;",  # WAD files for texture loading
+        music_track=2  # Play track02.ogg (set to 0 for no music)
     )
 
     
