@@ -2176,8 +2176,8 @@ class QuakeDungeonGenerator:
             f.write('{\n')
             f.write('"message" "Deep Below The Ground..."\n')
             f.write('"mapversion" "220"\n')
-            f.write('"sounds" "10"\n')
-            f.write('"_fog" "0.025 0.1 0.3 0.6"\n')
+            f.write('"sounds" "3"\n')
+            f.write('"_fog" "0.045 0.1 0.3 0.6"\n')
             f.write('"_skyfog" ".2"\n')
             f.write('"_telealpha" "1"\n')
             f.write('"_wateralpha" "0.6"\n')
@@ -2317,7 +2317,7 @@ class QuakeDungeonGenerator:
                 room_center_y = (end_room['y'] + end_room['height'] / 2) * self.cell_size
 
                 # Create a visible pad on the floor (like teleporter pads)
-                end_goal_texture = 'exit01'  # Use an exit texture to make it obvious
+                end_goal_texture = 'z_exit'  # Use an exit texture to make it obvious
                 pad_size = 96  # Slightly larger than teleporter pads
                 pad_thickness = 8
                 x1 = room_center_x - pad_size / 2
@@ -2335,7 +2335,7 @@ class QuakeDungeonGenerator:
                 room_center_y = (spawn_room['y'] + spawn_room['height'] / 2) * self.cell_size
 
                 # Create a visible pad on the floor marking the spawn point
-                spawn_pad_texture = 'enter01'  # Use an entry texture to mark spawn
+                spawn_pad_texture = '+0button'  # Use an entry texture to mark spawn
                 pad_size = 96  # Same size as exit pad
                 pad_thickness = 8
                 x1 = room_center_x - pad_size / 2
@@ -2626,10 +2626,10 @@ if __name__ == '__main__':
     print("="*60 + "\n")
 
     generator = QuakeDungeonGenerator(
-        grid_size=12,
+        grid_size=24,
         room_min=2,
         room_max=4,
-        num_rooms=100,
+        num_rooms=150,
         texture_variety=True,  # Enable random texture selection for variety
         wad_path="id.wad;"  # WAD files for texture loading
     )
