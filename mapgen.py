@@ -1311,7 +1311,7 @@ class QuakeDungeonGenerator:
     def generate(self):
         """Generate the dungeon layout"""
         # Generate rooms
-        for _ in range(self.num_rooms):
+        for i in range(self.num_rooms):
             room = self._place_random_room()
             if room:
                 # Assign a theme to this room
@@ -1319,6 +1319,11 @@ class QuakeDungeonGenerator:
                 # Assign specific textures from the theme
                 self._assign_room_textures(room)
                 self.rooms.append(room)
+
+                # Make the first room (spawn room) a safe room with supplies
+                if len(self.rooms) == 1:
+                    room['type'] = 'safe_room'
+                    print("Player spawn room set to Safe Room (supplies only, no monsters)")
 
         # Create doors between adjacent rooms
         self._create_doors()
