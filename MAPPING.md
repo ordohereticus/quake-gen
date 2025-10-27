@@ -47,7 +47,9 @@ Quake 1 .map files are plain text files that define world geometry (brushes) and
 
 ## Brush Geometry
 
-Brushes are convex 3D volumes defined by planes. Each plane is defined by 3 points and a texture.
+Brushes are **convex polyhedrons** - 3D objects made of faces which cannot 'see' each other. All solid level geometry is constructed from brushes. Each plane (face) is defined by 3 points and a texture.
+
+**Technical definition**: Brushes must be convex, meaning any two points inside the brush can be connected with a straight line that stays entirely inside the brush. Most commonly, you'll use cubes or cuboids, but any convex polyhedron is valid.
 
 ### Plane Definition Format
 ```
@@ -107,8 +109,8 @@ For a brush from (x1,y1,z1) to (x2,y2,z2):
 - **X axis**: East (positive) / West (negative)
 - **Y axis**: North (positive) / South (negative)
 - **Z axis**: Up (positive) / Down (negative)
-- **Units**: Quake units (1 unit ≈ 1 inch, or 64 units ≈ player height standing)
-- **Grid**: Typically snap to 16, 32, or 64 unit grid
+- **Units**: Quake units (1 unit ≈ 1 inch)
+- **Grid**: Typically snap to 16 unit grid (adjustable by powers of 2)
 
 ### Common Dimensions
 - **Floor thickness**: 32 units
@@ -116,7 +118,8 @@ For a brush from (x1,y1,z1) to (x2,y2,z2):
 - **Ceiling height**: 192-256 units
 - **Door width**: 64 units
 - **Door height**: 128 units
-- **Player dimensions**: ~32×32 base, 56 units tall (standing), 24 units tall (crouching)
+- **Player dimensions**: ~32×32 base, ~56 units tall (standing), ~24 units tall (crouching)
+- **Step height**: 16 units per step is comfortable (player can climb up to 18 units)
 
 ---
 
@@ -252,7 +255,36 @@ door_y2 = door_center_y + door_width/2  # = 160
 
 ## Entities
 
-Entities are objects in the game world (monsters, items, lights, player spawn, etc.).
+Entities are functional objects defined in the game code that you place into your level.
+
+### Two Types of Entities
+
+**1. Point Entities**: Objects placed at a single point in space
+- Examples: weapons, monsters, lights, player spawn
+- Simply dropped into place with an origin coordinate
+- Do not require brush geometry
+
+**2. Brush Entities**: Functional objects that need brush geometry
+- Examples: doors, platforms, triggers, moving/breakable objects
+- Created by selecting brush(es) and converting to entity type
+- The brush defines the shape and size of the entity
+
+### Entity Properties (Key-Value Pairs)
+
+Each entity can have various properties defined as key-value pairs:
+- **Key**: The name of the property (e.g., "light", "message", "wait")
+- **Value**: The setting for that property (e.g., "300", "Hello!", "5")
+
+Example: A light entity with custom brightness
+```
+"light" "300"
+```
+
+Example: A trigger_multiple with message and wait time
+```
+"message" "Quake is Great!"
+"wait" "5"
+```
 
 ### Entity Format
 ```
@@ -260,7 +292,7 @@ Entities are objects in the game world (monsters, items, lights, player spawn, e
 {
 "classname" "entity_type"
 "origin" "x y z"
-... additional properties ...
+... additional key-value pairs ...
 }
 ```
 
@@ -328,16 +360,32 @@ Common item classnames:
 - `weapon_supershotgun` - Super shotgun
 - `item_artifact_invulnerability` - Pentagram of Protection
 
+#### Trigger (Brush Entity Example)
+```
+// Trigger that displays a message when player walks through
+// First create a brush with "trigger" texture, then convert to entity
+{
+"classname" "trigger_multiple"
+"message" "Secret area found!"
+"wait" "5"
+... brush defining trigger volume ...
+}
+```
+- **trigger_multiple**: Fires repeatedly with wait time between
+- **message**: Text to display to player
+- **wait**: Seconds to wait before triggering again
+- **Convention**: Use "trigger" texture on trigger brushes (invisible, nonsolid)
+
 #### Teleporter
 ```
-// Teleporter trigger (entry pad)
+// Teleporter trigger (entry pad) - this is a brush entity
 {
 "classname" "trigger_teleport"
 "target" "dest1"
 ... brush defining trigger volume ...
 }
 
-// Teleporter destination
+// Teleporter destination - this is a point entity
 {
 "classname" "info_teleport_destination"
 "targetname" "dest1"
@@ -349,6 +397,21 @@ Common item classnames:
 ---
 
 ## Textures
+
+### Texture Storage and Distribution
+
+- **WAD files**: Textures are stored in .wad files during development
+- **Compilation**: QBSP extracts textures from .wad and compiles them into the .bsp
+- **Distribution**: You only need to distribute the .bsp file - textures are embedded
+- **Extraction**: Tools like TexMex can extract textures from .bsp files
+
+### Texture Dimensions
+
+**IMPORTANT**: Texture dimensions **must** be powers of 2
+
+- Valid sizes: 16, 32, 64, 128, 256, 512, 1024, etc.
+- Common sizes: 64×64, 128×128, 64×128
+- Invalid sizes: 100×100, 150×200, etc.
 
 ### Texture Naming
 
@@ -362,13 +425,14 @@ Quake textures are stored in WAD files. Common texture prefixes:
 - **Sky**: `sky1`, `sky4`
 - **Doors**: `door01_1`, etc.
 - **Switches**: `+0button`, `+0shoot` (animated, + prefix)
+- **Trigger**: `trigger` - conventional texture for trigger volumes
 
 ### Special Textures
 
 - **Liquids**: Start with `*` - automatically animated and semi-transparent
 - **Animated**: Start with `+` followed by frame number (e.g., `+0button`, `+1button`)
-- **Sky**: Special rendering, draws skybox
-- **Trigger**: Invisible texture used for trigger volumes
+- **Sky**: Special rendering, draws skybox instead of texture
+- **Trigger**: `trigger` texture - invisible and nonsolid, used for trigger volumes
 
 ### Texture Alignment
 
@@ -376,11 +440,18 @@ For most generated brushes, use:
 ```
 texture 0 0 0 1 1
 ```
-- First 0: X offset
-- Second 0: Y offset
-- Third 0: Rotation (degrees)
-- First 1: X scale
-- Second 1: Y scale
+- **First value**: X offset (in pixels)
+- **Second value**: Y offset (in pixels)
+- **Third value**: Rotation (degrees, 0-360)
+- **Fourth value**: X scale (1.0 = normal, 0.5 = half size, -1 = flip horizontal)
+- **Fifth value**: Y scale (1.0 = normal, 0.5 = half size, -1 = flip vertical)
+
+**Offset tips**: Typically shift by powers of 2 (1, 2, 4, 8, 16, 32, 64) to align with texture pixels
+
+**Scale tips**:
+- To make textures appear smaller, use values < 1 (e.g., 0.5 for half size)
+- To mirror/flip, use -1
+- Never use 0 for scale - use at least 0.1
 
 ---
 
@@ -459,29 +530,95 @@ For vertical connections (stairs between levels):
 }
 ```
 
+### Sealing and Leaks
+
+**Critical**: Your map must be completely sealed to compile properly with Vis.
+
+- **What is a leak?**: When the playable area can "see" the void (empty space outside the map)
+- **How to prevent**: Surround all playable areas with solid brush geometry
+- **Detection**: QBSP will warn you about leaks and generate a .pts (pointfile)
+- **Debugging**: Load the pointfile in editor to see line from entity to leak
+- **Common causes**:
+  - Gaps between brushes
+  - Entities placed outside sealed area
+  - Brush entities (doors, triggers) don't block leaks - only solid world brushes do
+
+### Vis and Optimization
+
+**Vis calculates what areas the player can see** to optimize rendering:
+
+- **What blocks Vis**: Only solid world brushes (in worldspawn entity)
+- **What doesn't block Vis**:
+  - Brush entities (doors, platforms, triggers)
+  - Liquids
+  - Clip brushes
+  - Sky brushes
+- **Performance impact**:
+  - Large open areas = longer compile times
+  - Complex geometry = longer compile times
+  - Can take days/weeks for poorly optimized maps
+- **Best practice**: Build areas similar in size/detail to stock Quake until you understand Vis times
+
 ### Common Pitfalls
 
-1. **Leaks**: Map not fully sealed - use large outer box to contain everything
+1. **Leaks**: Map not fully sealed - prevents Vis from running, causes rendering issues
 2. **Invalid brushes**: Non-convex or degenerate brushes crash compiler
 3. **Missing textures**: Reference textures not in WAD file
 4. **Z-fighting**: Overlapping coplanar faces cause flickering
 5. **Texture scale 0**: Always use at least 0.1 for scale values
 6. **Backwards planes**: Wrong point order flips plane normal inside-out
+7. **No lights**: Map will be pitch black if you don't add light entities and run light compiler
 
 ---
 
 ## Compilation
 
-Once you have a .map file, compile it to .bsp:
+Once you have a .map file, compile it to .bsp with three compilers:
+
+### Compilation Steps
 
 ```bash
-# Using modern tools (ericw-tools)
-qbsp mymap.map              # Compile geometry
-light mymap.bsp             # Calculate lighting
-vis mymap.bsp               # Calculate visibility
+# Using modern tools (ericw-tools or TyrUtils)
+qbsp mymap.map              # Step 1: Compile geometry
+light mymap.bsp             # Step 2: Calculate lighting
+vis mymap.bsp               # Step 3: Calculate visibility
 
 # Result: mymap.bsp (playable in Quake)
 ```
+
+### What Each Compiler Does
+
+**1. QBSP** - Binary Space Partitioning
+- Converts brushes into polygon geometry
+- Organizes polygons into BSP tree structure
+- **Extracts textures from .wad and embeds them in .bsp**
+- Detects and reports leaks (generates .pts pointfile)
+- Required for all maps
+- Fast (usually seconds to minutes)
+
+**2. Light** - Lighting Calculation
+- Calculates lighting based on light entities
+- Creates lightmaps (baked lighting) stored in .bsp
+- Supports various falloff types (linear, inverse, etc.)
+- Can be slow on complex maps (minutes to hours with high quality settings)
+- Optional but highly recommended (map will be fullbright without it)
+- If no light entities exist, map will be pitch black
+
+**3. Vis** - Visibility Optimization
+- Calculates Potentially Visible Set (PVS)
+- Determines what areas are visible from each location
+- Allows engine to skip rendering geometry player can't see
+- **Requires fully sealed map** (no leaks)
+- Can be very slow (hours to days/weeks on complex maps)
+- Optional but recommended for performance
+- Affected by room size and geometry complexity
+
+### Compile Time Tips
+
+- **Testing**: Skip Vis during testing - compile with just QBSP + Light
+- **Fast Light**: Use `-fast` flag for light to speed up testing
+- **Leak first**: Fix all leaks before running Vis
+- **Iterative**: Test frequently with fast compiles, do full compile at end
 
 ---
 
