@@ -1,8 +1,15 @@
 # Quake 1 Mapping Guide
 
-A practical reference for creating Quake 1 .map files programmatically or by hand.
+A comprehensive reference for creating Quake 1 maps, covering technical implementation, design philosophy, workflow optimization, and community best practices. This guide synthesizes knowledge from experienced mappers to answer both "how to build" and "how to design" great Quake levels.
+
+**Who this is for:**
+- Programmers generating .map files
+- New mappers learning level design
+- Experienced mappers seeking workflow tips
+- Arcane Dimensions mod mappers
 
 ## Table of Contents
+- [What Makes a Good Quake Map?](#what-makes-a-good-quake-map)
 - [MAP File Format](#map-file-format)
 - [Brush Geometry](#brush-geometry)
 - [Coordinate System](#coordinate-system)
@@ -12,7 +19,244 @@ A practical reference for creating Quake 1 .map files programmatically or by han
 - [Best Practices](#best-practices)
 - [Trenchbroom Workflow Tips](#trenchbroom-workflow-tips)
 - [Design Methodologies](#design-methodologies)
+- [Combat Encounter Design: The Door Problem](#combat-encounter-design-the-door-problem)
+- [Advanced Mapping: Arcane Dimensions](#advanced-mapping-arcane-dimensions)
 - [Compilation](#compilation)
+
+---
+
+## What Makes a Good Quake Map?
+
+This section distills design philosophy from experienced Quake mappers to answer the fundamental questions: WHY, HOW, WHEN, and WHAT creates quality Quake maps.
+
+### Core Principles
+
+**Start Small, Finish Complete**
+- Levels naturally grow in size over time, so always start with a small footprint
+- A small, well-planned map is better than a sprawling, unfinished layout
+- Larger maps require more testing and are harder to finish
+- Complete is better than perfect
+
+**Design for Player Experience**
+- Think about what the player sees, feels, and does at each moment
+- Create memorable moments that players will want to tell friends about
+- Balance challenge with empowerment
+- Guide the player without being heavy-handed
+
+**Architectural Identity Matters**
+- Give spaces strong identity (castle, sewer, cathedral, library)
+- Use consistent visual language within themed areas
+- Break symmetry in layout, monsters, and lighting to create visual interest
+- Architecture should serve both gameplay and aesthetics
+
+**Iterative Testing is Essential**
+- Regularly seal and compile your map to test scale and layout
+- Playtest frequently with fast compiles
+- Get others to test and record demos
+- Fix problems early before they become fundamental
+
+### The WHY: Purpose and Goals
+
+**Why are you making this map?**
+- To explore a specific mechanic or enemy type?
+- To realize a visual or architectural concept?
+- To create a specific player fantasy or story?
+- To experiment with a new technique or pattern?
+
+Having a clear purpose helps you make decisions when you're stuck.
+
+**Why will players enjoy it?**
+- Satisfying combat encounters
+- Beautiful or atmospheric environments
+- Clever secrets and exploration rewards
+- Memorable setpieces or surprising moments
+- Fair challenge that respects player skill
+
+### The WHAT: Content Selection
+
+**What to include:**
+- Pick a focused subset of monsters (don't use every type)
+- Choose melee, ranged, and flying types that complement each other
+- Plan secrets as you build so they feel natural
+- Add environmental sounds (wind, water, lava, wood, metal)
+- Include enough ammo and health for your chosen difficulty
+
+**What to avoid:**
+- Don't try to showcase every feature in one map
+- Avoid repetitive patterns without variation
+- Don't create maze-like layouts with blind choices
+- Avoid door problems (fighting from thresholds)
+- Don't place monsters where they can't path properly
+
+### The HOW: Execution Techniques
+
+**Layout and Flow:**
+1. Sketch or blockout the overall flow first
+2. Create distinct areas with clear purposes
+3. Plan vertical spaces for flying enemies and dynamic combat
+4. Design for both forward progress and backtracking
+5. Leave room for the level to grow
+6. Use looping routes to build player trust
+7. Consider one-way shortcuts (high areas that can be dropped to later)
+
+**Navigation and Player Pathing**:
+- Create clear main paths with intuitive flow
+- Incorporate looping routes before major junctions
+- Use symmetry to communicate equally important paths
+- Avoid making players feel they're missing content by choosing one path
+- Guide attention with lighting, detail, and visual language
+- Ensure fair navigability within game mechanics (jump height, fall distance)
+
+**Monster Placement:**
+- Mix different types to create challenging encounters
+- Place patrolling monsters to add life to spaces
+- Plan monster jump triggers for ultimate surprises
+- Consider monster step height (32 units max)
+- Design vertical spaces for hovering enemies (Gaunt, Gargoyles)
+- Monsters complement each other in attack and movement
+
+**Gameplay Pacing:**
+1. Start simple to teach mechanics
+2. Gradually increase challenge and complexity
+3. Punctuate with setpieces or reversals
+4. Give breathing room after intense fights
+5. End with a memorable climax
+
+**Gameplay Variety**:
+- Mix combat encounters with environmental puzzles
+- Vary enemy types and combinations within your chosen subset
+- Include exploration rewards and secrets
+- Balance "meat and potato" encounters with memorable setpieces
+
+**Visual Design:**
+- Create consistent visual language per area
+- Use lighting to guide and create mood (high contrast can be dramatic)
+- Use fill lights to subtly illuminate dark areas
+- Break symmetry in architecture and monster placement
+- Add detail that reinforces theme without cluttering
+- Ensure good visibility for gameplay (never too dark to see)
+- Maintain consistent level of detail throughout
+- Use texture variation on floors to indicate different areas or steps
+- Ensure proper texture alignment
+
+**Lighting Design**:
+- Use Quake's lighting system to create atmosphere and guide player
+- High-contrast lighting with shadows can be dramatic
+- Fill lights can subtly illuminate dark areas without destroying mood
+- Avoid making maps too dark to see (frustrating, not atmospheric)
+- Consider how lighting changes emotional response
+- Use colored lights sparingly for atmosphere
+
+**Theming and Identity**:
+- Give levels strong identity beyond abstract geometry
+- Use thematic elements (castle, dungeon, industrial, library)
+- Apply consistent textures and architectural language
+- Add environmental sounds (wind, water, lava, wood, metal)
+- Use environmental storytelling through details and animations
+- Create sense of place and history
+
+**Technical Considerations**:
+- Be mindful of game mechanics (jump height, fall distance)
+- Consider optimization (r_speeds in Quake)
+- Ensure level is navigable and fair
+- Test regularly for scale and layout issues
+
+### The WHEN: Workflow Timing
+
+**When to focus on different aspects:**
+
+**Early (Blockout Phase):**
+- Layout and flow
+- Basic gameplay encounters
+- Scale and proportions
+- Core mechanics
+
+**Middle (Refinement Phase):**
+- Detailed architecture
+- Monster placement and tuning
+- Secret areas
+- Lighting foundation
+
+**Late (Polish Phase):**
+- Texture alignment
+- Lighting refinement
+- Difficulty balancing across skill levels
+- Bug fixing and leak prevention
+
+**When to compile:**
+- Seal and compile early and often
+- Use fast compiles (skip Vis) during iteration
+- Test in-game regularly, don't just look at editor
+- Do full compile only when nearly complete
+
+**When to seek feedback:**
+- After blockout is playable
+- When you're stuck or uncertain
+- Before final polish phase
+- Throughout development if collaborating
+
+### Skill Levels and Player Types
+
+**Plan for multiple skill levels:**
+- Easy (0): Learning the game
+- Normal (1): Standard experience
+- Hard (2): Experienced players
+- Nightmare (3): Extra monsters, faster attacks
+- Evil (4) (AD only): Starts with shadow axe, one-shot kills possible
+
+**Design considerations:**
+- Add extra monsters/items via skill flags
+- Consider cover for nightmare hitscan monsters
+- Test all skill levels before release
+- Think about Chaos mode (randomized vanilla monsters)
+
+**Plan for Co-op:**
+- Forward spawn points for larger maps
+- Items can be given or denied with coop keys
+- Plan locked arenas with coop player access
+- Test with impulse commands for multi-player scenarios
+
+### Testing and Developer Tools
+
+**Use developer mode (developer 1) always during testing:**
+- Yellow diamonds mean broken items or monsters
+- Other colors: Blue = delay spawn, Green = nocount, Red = nightmare, White = no zaware
+- Path corners show direction and angle arrows
+- Red arrows pointing up = dead ends
+- Check console for errors and warnings (red highlights)
+
+**Testing checklist:**
+- All skill levels work
+- No broken entities (yellow diamonds)
+- Monsters can path to player
+- Secrets are discoverable but not obvious
+- Ammo/health balance feels right
+- No leaks (map is sealed)
+- Performance is acceptable
+
+### Special Features (Arcane Dimensions)
+
+If mapping for AD, additional considerations:
+
+**Breakables:**
+- Use consistent visual design (cracked/broken appearance)
+- Show players what's breakable at the beginning
+- Monsters will smash through to reach player
+- Can hide items in breakable models (vases, pots)
+- Use style key to define defaults
+
+**Worldspawn Settings:**
+- Use `no_item_offset = 1` (AD standard)
+- Define fog parameters if using fog triggers
+- Set water alpha for liquids and portals
+- Check particlemax limit for particle effects
+- Store compiler options (sun, dirt, bounce)
+
+**Documentation:**
+- The best documentation is a working example map
+- All AD test maps are available to load in editor
+- FGD/DEF files contain entity information
+- Check official test maps for version 1.8.1+
 
 ---
 
@@ -818,6 +1062,407 @@ Different starting points for creating Quake maps, based on Andrew Yoder's mappi
 
 ---
 
+## Combat Encounter Design: The Door Problem
+
+Understanding how to draw players into gameplay spaces and encourage dynamic combat is fundamental to good level design. This section covers map control theory and practical solutions to common combat design problems.
+
+### What is Map Control?
+
+**Core Concept**: Map control is about developing your options while limiting your opponent's options. In single-player FPS design, this means creating encounters where the player fights for territory and locks the level into a solved state.
+
+**Resources of Map Control**:
+- **Position**: Where you are in the space
+- **Health and Ammo**: Resources to exchange for better position
+- **Information**: Knowing where enemies are
+- **Cover**: Geometry that limits angles of attack
+- **Movement Options**: Paths available for dodging and flanking
+
+When players die, it's often because they lost the game of map control and ran out of options. For combat encounters, map control means understanding the relationship between enemies, environment, and available resources.
+
+### The Door Problem
+
+**What it is**: When a player enters a combat arena from a hallway, retreats back to the doorway, and fights from the threshold instead of engaging dynamically in the space. This turns exciting combat into a boring shooting gallery.
+
+**Why it happens**: 
+- The arena exposes the player to more angles of attack than they can manage
+- The hallway offers safe cover with a funnel point
+- Nothing draws the player into the arena
+- Nothing pushes the player out of the hallway
+
+**The real problem**: Not the door itself, but the relationship between the two spaces, the threshold the player experiences when crossing.
+
+### Map Control as Graphs
+
+You can visualize combat spaces as graphs of positions, showing which areas the player controls, occupies, or can attack:
+
+**Example**:
+- Player occupies node 2
+- Player controls node 1 (safe territory)
+- Player can attack nodes 3 and 4 (contested)
+- Enemy occupies node 5
+- Enemy controls node 6
+
+When a player steps into an arena with multiple enemy sight lines, they're exposed to many attack angles simultaneously. The graph helps visualize why retreating to the door feels safer.
+
+### Value Diagrams
+
+**What they are**: Visual abstractions of how players perceive and evaluate level geometry.
+
+**How to use them**:
+- Green areas = positive value (safe, good cover)
+- Red areas = negative value (exposed, dangerous)
+- Question marks = unknown/hidden information
+- Plus signs = resources or strong positions
+- Minus signs = threats or dangerous positions
+
+**Key Principles**:
+- Convex corners make strong cover (step out, shoot, step back)
+- Deadends and killzones repel players (limited options)
+- Values change dynamically as combat progresses
+- Different enemy types change the value of geometry
+
+**Example**: Cover strong against hitscan enemies becomes dangerous against enemies with bouncing grenades. Open floor space becomes valuable.
+
+### Techniques for Solving the Door Problem
+
+**1. Foothold of Cover**
+
+Add a strong position near the entrance to draw players into the arena.
+
+**Implementation**:
+- Place solid cover block near door threshold
+- Cover should limit enemy angles of attack
+- Position should be strong but not so exposed enemies can surround it
+- Creates a forward position to control before pushing deeper
+
+**Why it works**: Gives player a better option than the doorway, limits angles of attack, provides a staging point for deeper pushes.
+
+**2. Reward for Risk**
+
+Place valuable items (weapons, powerups, health) in exposed positions to attract players.
+
+**Implementation**:
+- Super shotgun in center of arena
+- Armor or health pack behind cover
+- Ammo placed to encourage movement
+
+**Limitations**:
+- Once collected, no longer draws player in
+- If player still has previous powerup, offers little value
+- Not sufficient alone, combine with other techniques
+
+**3. Hidden Information**
+
+Partition the arena into layers so no single position can see everything.
+
+**Implementation**:
+- Add walls and obstacles that block sightlines
+- Create multiple "islands" of territory
+- Force player to move to gain information
+- Walls double as cover when combat begins
+
+**Why it works**:
+- Information becomes another resource of map control
+- Player must spend time/position to gain information
+- Discourages retreating (giving up control to unknowns)
+- Creates apprehension that draws player into orbiting the space
+- Even empty rooms feel tense with hidden areas
+
+**In terms of map control**: Player can "divide and conquer" by taking territory piece by piece instead of facing all enemies at once.
+
+**4. AI Leashing**
+
+Keep enemies at a distance on "islands" of territory so they can't funnel through the door.
+
+**Implementation**:
+- Use height differences (steps, platforms)
+- Monsters can't climb/drop beyond certain heights (varies by game)
+- In Quake: monsters can't climb 32+ unit steps
+- Modern games: use AI zones, defense volumes, path weighting
+
+**Why it works**: Player must go on offense instead of waiting for enemies to funnel to them.
+
+**Limitation**: Not sufficient alone, use in combination with other techniques.
+
+**5. One-Way Paths**
+
+Force commitment by preventing retreat.
+
+**Implementation**:
+- Drop-downs player can't climb back up
+- Doors that close and lock behind player
+- One-way elevators or teleporters
+- Modern games: cutscenes while gating previous area
+
+**Cautions**:
+- For classic FPS (Quake): Breaks conventions, denies agency
+- Players expect exploration and backtracking
+- If using, open new routes or create loops later
+- Don't trap players in situations they can't handle
+
+### Combining Techniques
+
+**Best practice**: Use multiple techniques together:
+
+1. **Footholds of cover** to draw player in before enemies alert
+2. **Hidden information** and **AI leashing** to divide arena into layers
+3. **Reward for risk** to encourage forward movement
+4. **One-way path** to prevent retreat after commitment
+
+**Example Combined Arena**:
+- Player enters through elevated position
+- Drops down to foothold of cover (one-way commitment)
+- Super shotgun visible in center (reward)
+- Walls partition space into 3-4 layers (hidden information)
+- Enemies on raised platforms (AI leashing)
+- Health/ammo behind far cover (reward)
+
+### Verticality and Combat
+
+**Why vertical spaces matter**:
+- Change emotional response (low = oppression, high = safety)
+- Create natural AI leashing opportunities
+- Provide positional advantages and disadvantages
+- Enable unique combat scenarios
+
+**Design considerations**:
+- High ground gives player advantage
+- Low areas can trap player with limited movement
+- Multiple floor levels create tactical depth
+- Flying/hovering enemies need ceiling clearance
+
+**Quake-specific**:
+- Hunter Ogres (AD) can aim up/down at player
+- Design extra vertical space for Gaunt and Gargoyles
+- Use `trigger_monsternojump` to help jumping monsters through narrow spaces
+- Use `trigger_monsterturret` to force ranged attacks from elevated positions
+
+### Player Flow and Navigation
+
+**Creating intuitive paths**:
+- Use lighting to guide player attention
+- Maintain consistent level of detail
+- Avoid random or misleading background details
+- Give levels strong identity beyond abstract geometry
+
+**Looping routes**:
+- Build player trust before major junctions
+- One-way shortcuts: place areas on high ground, drop down later
+- If paths are equally important, use symmetry to communicate this
+
+**What to avoid**:
+- Don't make players feel they're missing content by choosing one path
+- Avoid blind choices that lead to dead ends (maze problem)
+- Don't create frustrating traps or punishing environmental hazards
+- Avoid situations where player fights from threshold (door problem)
+
+### Pacing and Variety
+
+**Combat pacing**:
+1. Start simple to teach mechanics
+2. Gradually increase challenge
+3. Punctuate with setpieces or reversals
+4. Give breathing room after intense fights
+5. End with memorable climax
+
+**Gameplay variety**:
+- Mix combat encounters with environmental puzzles
+- Vary enemy types and combinations
+- Change arena types (open, tight, vertical, horizontal)
+- Add exploration and secret discovery
+- Include "meat and potato" encounters between setpieces
+
+**Environmental hazards**:
+- Should add tension, not frustration
+- Give clear visual communication of danger
+- Ensure hazards are fair and telegraphed
+- Can be used as tactical options (lure enemies into hazards)
+
+### Prioritization Choice
+
+**Definition** (Matthias Worch): "The complex interplay of systems that are easily understood individually, but that combine into situations that don't have a consistent and obviously superior tactic."
+
+**Why it matters**: Players get to form opinions about the best plan, creating engaging decision-making rather than solving by rote.
+
+**How to create it**:
+- Combine multiple simple systems
+- Create dynamic situations that shift
+- Avoid single dominant strategies
+- Let player creativity shine through
+
+**Example**: Cover strong against hitscan becomes dangerous against grenades. Open space becomes dangerous with multiple enemies but safe for dodging projectiles. Player must adapt tactics constantly.
+
+---
+
+## Advanced Mapping: Arcane Dimensions
+
+Arcane Dimensions (AD) is a comprehensive Quake mod with extensive features. At its heart is original Quake, meaning any vanilla map will work. Start with limited resources and a small footprint, then gradually add AD features.
+
+### Getting Started with AD
+
+**Core Philosophy:**
+- Start with original Quake approach
+- Add AD features gradually as map develops
+- Not every feature needs to exist in every map
+- Focus on features that complement your map style
+
+**Best Practices:**
+1. Begin with a small map footprint
+2. Plan secrets as you create the level
+3. Design architectural spaces to complement monster designs
+4. Move unsuccessful areas to temporary map
+5. Add environmental sounds
+6. Watch out for symmetry and break it
+7. Regularly seal and compile for testing
+
+### Map Layout Principles
+
+**Size Management:**
+- Levels grow naturally over time, start small
+- Larger maps are harder to finish due to testing requirements
+- Small well-planned map > sprawling layout
+- Complete is better than ambitious
+
+**Spatial Design:**
+- Design for vertical gameplay (new monsters use it)
+- Create emotional responses: low ceilings = oppression, high ceilings = safety
+- Build plenty of vertical space for hovering monsters (Gaunt, Gargoyles)
+- Hunter Ogres (armored versions) can aim up/down
+
+### Monster Selection and Placement
+
+**Choose a Focused Subset:**
+- Don't include every monster class in one map
+- Pick: one melee type, one ranged type, one flying type
+- Mix and match types for challenging encounters
+- Monster types complement each other in attack/movement
+
+**Monster Behavior:**
+- Create patrolling monsters for living spaces
+- Monsters cannot climb 32 unit steps (players can)
+- All boss monsters require special minion cache entity
+- Plan for monster jump triggers (ultimate surprise)
+
+**Special Monster Triggers:**
+- `trigger_monsternojump`: Help jumping monsters through narrow spaces
+- `trigger_monsterturret`: Force monsters to use ranged attacks like turrets
+- `trigger_monstermovespeed`: Toggle monster turret abilities
+- `trigger_monsterpassivestate`: Toggle passive behavior
+
+### Breakables System
+
+**Design Principles:**
+- Monsters smash through breakables to reach player
+- Use consistent visual design (visually cracked/broken)
+- Show player what's breakable at beginning
+- Can use models (vases, pots) to hide items
+- Always use style key to define defaults
+
+**Implementation:**
+- Plan breakables early in layout
+- Make them obvious through visual cues
+- Don't overuse (loses impact)
+- Test monster pathing through breakables
+
+### Features and Complexity
+
+**Feature Selection:**
+- AD has very large collection of features
+- Not every feature needs to exist in every map
+- Focus on certain features that fit your style
+- Hint at new features early (show low gravity, etc.)
+
+**Progressive Introduction:**
+- Introduce features one at a time
+- Show, don't tell (let player discover)
+- Combine features for unique moments
+- Don't overwhelm with too many new things
+
+### Developer Mode Testing
+
+**Always test with developer 1 active:**
+- Enable by default in quake.rc or special config
+- Yellow diamonds = broken item or monster (critical)
+- Blue = delay spawn
+- Green = nocount
+- Red = nightmare only
+- White = no zaware
+- Path corners show direction/angle arrows
+- Red arrows up = dead end/final destination
+
+**Console Monitoring:**
+- Check for errors and warnings
+- Red highlights indicate problems
+- Fix errors immediately
+- Validate all entity connections
+
+### Example Maps
+
+**Learn from Official AD Test Maps:**
+- Best documentation is working examples
+- All test maps available to load in editor
+- FGD/DEF files have extensive entity info
+- Open def/fgd files in text editor for details
+- Special test maps for version 1.8.1+
+
+**Study Patterns:**
+- How monsters are placed
+- How features are introduced
+- How spaces are designed
+- How difficulty scales
+
+### Skill Level Design
+
+**Nightmare (3) Considerations:**
+- Can spawn extra monsters or items
+- Nightmare+ monsters attack more often
+- Faster projectiles
+- Consider placing extra cover for hitscan
+
+**Evil Skill (4):**
+- Player starts with shadow axe
+- Use triggers to detect shadow axe
+- Many monsters can one-shot kill
+- Requires very different balance
+
+**Multi-Skill Design:**
+- Place entities with appropriate skill flags
+- Test each skill level thoroughly
+- Balance ammo/health per difficulty
+- Consider Chaos mode (randomized vanilla monsters)
+
+### Co-op Features
+
+**Co-op Planning:**
+- Use forward spawn points for larger maps
+- Items can be given/denied with coop entity keys
+- Plan for locked arena encounters with coop access
+- Many impulse commands available for testing
+
+**Co-op Considerations:**
+- More players = need more monsters
+- Health/ammo must scale appropriately
+- Puzzle solutions should work with multiple players
+- Test respawn points are fair
+
+### Worldspawn Configuration
+
+**Essential Settings:**
+- `no_item_offset = 1` (AD standard)
+- Define fog parameters if using fog triggers
+- Set player weapons, ammo, armor, HP on start
+- Water alpha for liquids and portals (default on worldspawn)
+- Check particlemax limit for particle effects
+- Store compiler options (sun, dirt, bounce)
+
+**Why Worldspawn Settings Matter:**
+- Consistent defaults across maps
+- Player expectations for AD maps
+- Proper interaction with AD features
+- Compiler optimization hints
+
+---
+
 ## Compilation
 
 Once you have a .map file, compile it to .bsp with three compilers:
@@ -937,7 +1582,18 @@ This creates a simple 256×256 room with a player start and light.
 - **Sock's Top 10 Mapper Hints**: https://www.slipseer.com/index.php?threads/top-10-mapper-hints.186/#post-1126
 - **Markie's 45 Degree Building Video**: https://www.youtube.com/watch?v=[search for Markie 45 degrees quake]
 - **Andrew Yoder's Level Design Blog**: https://andrewyoderdesign.blog/
+- **Andrew Yoder's Door Problem Article**: https://andrewyoderdesign.blog/2024/08/22/the-door-problem-of-combat-design/
+- **GDC Talks on Level Design**:
+  - Randy Smith (2006): "Level Building for Stealth Games"
+  - Matthias Worch (2014): "Meaningful Choice for Game Level Design"
+  - Blake Rebouche (2018): "Balancing Action and RPG in Horizon Zero Dawn Quests"
+  - Aubrey Serr (2019): "Radically Nonlinear Level Design"
 
 ---
 
-*This guide combines technical specifications with community wisdom from Bal's mapping tips and Andrew Yoder's design methodologies.*
+*This guide combines technical specifications, community workflow wisdom, and design philosophy from:*
+- *Bal's Quake Mapping Tips & Tricks*
+- *Andrew Yoder's Level Design Methodologies and Combat Design Theory*  
+- *Simon O'Callaghan (Sock)'s Arcane Dimensions Mapper's Guide*
+- *Practical experience with programmatic map generation*
+- *Classic FPS design theory and value diagram concepts*
