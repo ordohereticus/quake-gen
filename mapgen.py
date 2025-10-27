@@ -2143,7 +2143,7 @@ class QuakeDungeonGenerator:
                 end_room = self.rooms[self.end_goal]
                 room_center_x = (end_room['x'] + end_room['width'] / 2) * self.cell_size
                 room_center_y = (end_room['y'] + end_room['height'] / 2) * self.cell_size
-                
+
                 # Create a visible pad on the floor (like teleporter pads)
                 end_goal_texture = 'exit01'  # Use an exit texture to make it obvious
                 pad_size = 96  # Slightly larger than teleporter pads
@@ -2155,7 +2155,25 @@ class QuakeDungeonGenerator:
                 y2 = room_center_y + pad_size / 2
                 z2 = self.floor_height + pad_thickness
                 self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, end_goal_texture)
-            
+
+            # Generate visual spawn pad for player start room
+            if self.rooms:
+                spawn_room = self.rooms[0]
+                room_center_x = (spawn_room['x'] + spawn_room['width'] / 2) * self.cell_size
+                room_center_y = (spawn_room['y'] + spawn_room['height'] / 2) * self.cell_size
+
+                # Create a visible pad on the floor marking the spawn point
+                spawn_pad_texture = 'enter01'  # Use an entry texture to mark spawn
+                pad_size = 96  # Same size as exit pad
+                pad_thickness = 8
+                x1 = room_center_x - pad_size / 2
+                y1 = room_center_y - pad_size / 2
+                z1 = self.floor_height
+                x2 = room_center_x + pad_size / 2
+                y2 = room_center_y + pad_size / 2
+                z2 = self.floor_height + pad_thickness
+                self._write_simple_brush(f, x1, y1, z1, x2, y2, z2, spawn_pad_texture)
+
             f.write('}\n')
 
             # --- ENTITY GENERATION (No changes needed here) ---
