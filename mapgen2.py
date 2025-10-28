@@ -332,6 +332,12 @@ class QuakeMapGenerator2:
                 self._write_room(f, room, i)
                 f.write('\n')
 
+            # Write corridor geometry to bridge gaps between rooms
+            for i, conn in enumerate(self.connections):
+                f.write(f'// ========== CORRIDOR {i+1} ==========\n')
+                self._write_corridor(f, conn)
+                f.write('\n')
+
             f.write('}\n')  # Close worldspawn
 
             # Write all entities
@@ -504,6 +510,135 @@ class QuakeMapGenerator2:
 
             self._write_brush(f, x1, y1, z1, x2, y2, z2, theme['trim'])
 
+
+    def _write_corridor(self, f, conn):
+        """Write corridor geometry to bridge the gap between two rooms"""
+        room1 = self.rooms[conn['from']]
+        room2 = self.rooms[conn['to']]
+
+        theme = self.themes[self.theme]
+
+        # Calculate room boundaries
+        r1_x1 = room1['center'][0] - room1['width'] // 2
+        r1_y1 = room1['center'][1] - room1['height'] // 2
+        r1_x2 = r1_x1 + room1['width']
+        r1_y2 = r1_y1 + room1['height']
+
+        r2_x1 = room2['center'][0] - room2['width'] // 2
+        r2_y1 = room2['center'][1] - room2['height'] // 2
+        r2_x2 = r2_x1 + room2['width']
+        r2_y2 = r2_y1 + room2['height']
+
+        # Use the lower floor z for corridor
+        floor_z = min(room1['floor_z'], room2['floor_z'])
+        ceiling_z = floor_z + self.door_height
+
+        # Corridor width (matches door width plus some margin)
+        corridor_width = self.door_width * 2  # 128 units
+
+        side = conn['side']
+
+        if side == 'east':
+            # Room 1 is west of Room 2, connect along X axis
+            # Corridor spans from room1's east wall to room2's west wall
+            corridor_x1 = r1_x2 - self.wall_thickness
+            corridor_x2 = r2_x1 + self.wall_thickness
+
+            # Center corridor on room centers Y coordinate
+            center_y = (room1['center'][1] + room2['center'][1]) // 2
+            corridor_y1 = center_y - corridor_width // 2
+            corridor_y2 = center_y + corridor_width // 2
+
+            # Floor
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z - self.floor_thickness,
+                             corridor_x2, corridor_y2, floor_z, theme['floor'])
+
+            # Ceiling
+            self._write_brush(f, corridor_x1, corridor_y1, ceiling_z,
+                             corridor_x2, corridor_y2, ceiling_z + self.floor_thickness, theme['ceiling'])
+
+            # North wall
+            self._write_brush(f, corridor_x1, corridor_y2 - self.wall_thickness, floor_z,
+                             corridor_x2, corridor_y2, ceiling_z, theme['wall'])
+
+            # South wall
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z,
+                             corridor_x2, corridor_y1 + self.wall_thickness, ceiling_z, theme['wall'])
+
+        elif side == 'west':
+            # Room 1 is east of Room 2, connect along X axis
+            corridor_x1 = r2_x2 - self.wall_thickness
+            corridor_x2 = r1_x1 + self.wall_thickness
+
+            center_y = (room1['center'][1] + room2['center'][1]) // 2
+            corridor_y1 = center_y - corridor_width // 2
+            corridor_y2 = center_y + corridor_width // 2
+
+            # Floor
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z - self.floor_thickness,
+                             corridor_x2, corridor_y2, floor_z, theme['floor'])
+
+            # Ceiling
+            self._write_brush(f, corridor_x1, corridor_y1, ceiling_z,
+                             corridor_x2, corridor_y2, ceiling_z + self.floor_thickness, theme['ceiling'])
+
+            # North wall
+            self._write_brush(f, corridor_x1, corridor_y2 - self.wall_thickness, floor_z,
+                             corridor_x2, corridor_y2, ceiling_z, theme['wall'])
+
+            # South wall
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z,
+                             corridor_x2, corridor_y1 + self.wall_thickness, ceiling_z, theme['wall'])
+
+        elif side == 'south':
+            # Room 1 is north of Room 2, connect along Y axis
+            corridor_y1 = r1_y2 - self.wall_thickness
+            corridor_y2 = r2_y1 + self.wall_thickness
+
+            center_x = (room1['center'][0] + room2['center'][0]) // 2
+            corridor_x1 = center_x - corridor_width // 2
+            corridor_x2 = center_x + corridor_width // 2
+
+            # Floor
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z - self.floor_thickness,
+                             corridor_x2, corridor_y2, floor_z, theme['floor'])
+
+            # Ceiling
+            self._write_brush(f, corridor_x1, corridor_y1, ceiling_z,
+                             corridor_x2, corridor_y2, ceiling_z + self.floor_thickness, theme['ceiling'])
+
+            # East wall
+            self._write_brush(f, corridor_x2 - self.wall_thickness, corridor_y1, floor_z,
+                             corridor_x2, corridor_y2, ceiling_z, theme['wall'])
+
+            # West wall
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z,
+                             corridor_x1 + self.wall_thickness, corridor_y2, ceiling_z, theme['wall'])
+
+        elif side == 'north':
+            # Room 1 is south of Room 2, connect along Y axis
+            corridor_y1 = r2_y2 - self.wall_thickness
+            corridor_y2 = r1_y1 + self.wall_thickness
+
+            center_x = (room1['center'][0] + room2['center'][0]) // 2
+            corridor_x1 = center_x - corridor_width // 2
+            corridor_x2 = center_x + corridor_width // 2
+
+            # Floor
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z - self.floor_thickness,
+                             corridor_x2, corridor_y2, floor_z, theme['floor'])
+
+            # Ceiling
+            self._write_brush(f, corridor_x1, corridor_y1, ceiling_z,
+                             corridor_x2, corridor_y2, ceiling_z + self.floor_thickness, theme['ceiling'])
+
+            # East wall
+            self._write_brush(f, corridor_x2 - self.wall_thickness, corridor_y1, floor_z,
+                             corridor_x2, corridor_y2, ceiling_z, theme['wall'])
+
+            # West wall
+            self._write_brush(f, corridor_x1, corridor_y1, floor_z,
+                             corridor_x1 + self.wall_thickness, corridor_y2, ceiling_z, theme['wall'])
 
     def _write_brush(self, f, x1, y1, z1, x2, y2, z2, texture):
         """Write a simple axis-aligned box brush"""
